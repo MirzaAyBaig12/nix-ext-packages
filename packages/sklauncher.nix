@@ -10,7 +10,7 @@ let
 
   src = fetchurl {
     url = "https://github.com/sklauncher/binaries/releases/download/v${version}/SKlauncher-${version}-x86_64.AppImage";
-    hash = lib.fakeHash;
+    hash = "sha256-b3rlIg9vHs/jEM430gtnqTVyCbEmVczydy7xJDobjEg=";
   };
 
   appimageContents = appimageTools.extract {
@@ -21,11 +21,17 @@ appimageTools.wrapType2 {
   inherit pname version src;
 
   extraInstallCommands = ''
-    if [ -f ${appimageContents}/sklauncher.desktop ]; then
-      install -Dm644 \
-        ${appimageContents}/sklauncher.desktop \
-        $out/share/applications/SKLauncher.desktop
-    fi
+    install -Dm644 \
+      ${appimageContents}/pl.skmedix.sklauncher.desktop \
+      $out/share/applications/SKLauncher.desktop
+
+    install -Dm644 \
+      ${appimageContents}/usr/share/icons/hicolor/512x512/apps/sklauncher.png \
+      $out/share/icons/hicolor/512x512/apps/sklauncher.png
+
+    substituteInPlace $out/share/applications/SKLauncher.desktop \
+      --replace-fail 'Name=SKlauncher' 'Name=SKLauncher' \
+      --replace-fail 'Exec=AppRun --no-sandbox %U' 'Exec=sklauncher %U'
   '';
 
   meta = {
