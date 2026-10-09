@@ -13,6 +13,7 @@
     {
       packages.${system} = {
         sklauncher = pkgs.callPackage ./packages/sklauncher.nix { };
+        hydra-launcher = pkgs.callPackage ./packages/hydra-launcher.nix { };
       };
     };
 }
