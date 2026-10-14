@@ -1,5 +1,38 @@
 {
   "nodes": {
+    "fx-autoconfig": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1784800794,
+        "narHash": "sha256-bpOt/fD8zZiKbb2sRQHl7eobuGklY9c2QI/jmYi9WE4=",
+        "owner": "MrOtherGuy",
+        "repo": "fx-autoconfig",
+        "rev": "dfdab5684faffc112b76ccb1d8cab7f75da0102c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "MrOtherGuy",
+        "repo": "fx-autoconfig",
+        "type": "github"
+      }
+    },
+    "natsumi": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1791512525,
+        "narHash": "sha256-Ur0+WjTEEY9MpGNSfLD+QzT9rcAxhv0db+oQtyOABCM=",
+        "owner": "greeeen-dev",
+        "repo": "natsumi-browser",
+        "rev": "d4e53042f3cd840babc38a2bc754225511f640b3",
+        "type": "github"
+      },
+      "original": {
+        "owner": "greeeen-dev",
+        "ref": "v6.12.4",
+        "repo": "natsumi-browser",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1791048980,
@@ -18,6 +51,8 @@
     },
     "root": {
       "inputs": {
+        "fx-autoconfig": "fx-autoconfig",
+        "natsumi": "natsumi",
         "nixpkgs": "nixpkgs"
       }
     }

@@ -3,12 +3,25 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    # Plain source trees used by the programs.natsumi module (modules/natsumi.nix).
+    # scripts/update-natsumi.sh bumps the natsumi tag below and refreshes both locks.
+    fx-autoconfig = {
+      url = "github:MrOtherGuy/fx-autoconfig";
+      flake = false;
+    };
+    # Pinned to a tagged release (the repo doesn't publish release assets).
+    natsumi = {
+      url = "github:greeeen-dev/natsumi-browser/v6.12.4";
+      flake = false;
+    };
   };
 
-  outputs = { nixpkgs, ... }:
+  outputs = { nixpkgs, fx-autoconfig, natsumi, ... }:
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
+      mkNatsumiModule = import ./modules/natsumi.nix { inherit fx-autoconfig natsumi; };
     in
     {
       packages.${system} = {
@@ -16,5 +29,8 @@
         hydra-launcher = pkgs.callPackage ./packages/hydra-launcher.nix { };
         modrinth = pkgs.callPackage ./packages/modrinth.nix { };
       };
+
+      nixosModules.natsumi = mkNatsumiModule { isHomeManager = false; };
+      homeManagerModules.natsumi = mkNatsumiModule { isHomeManager = true; };
     };
 }

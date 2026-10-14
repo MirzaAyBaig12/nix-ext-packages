@@ -25,6 +25,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: ./scripts/update.sh
 
+      - name: Bump natsumi module sources
+        run: ./scripts/update-natsumi.sh
+
+      - name: Check flake (natsumi modules evaluate)
+        run: nix flake check --no-build
+
       - name: Build every package
         run: |
           for f in packages/*.nix; do
