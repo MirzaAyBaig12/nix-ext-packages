@@ -1,7 +1,9 @@
 {
   lib,
   appimageTools,
+  buildFHSEnv,
   fetchurl,
+  writeShellScript,
 }:
 
 let
@@ -16,9 +18,39 @@ let
   appimageContents = appimageTools.extract {
     inherit pname version src;
   };
+
+  fhsArgs = appimageTools.defaultFhsEnvArgs;
 in
-appimageTools.wrapType2 {
-  inherit pname version src;
+buildFHSEnv {
+  inherit pname version;
+
+  # same base lib set as wrapType2, plus what umu-run / ludusavi / games want
+  targetPkgs =
+    pkgs:
+    (fhsArgs.targetPkgs pkgs)
+    ++ (with pkgs; [
+      python3
+      zstd
+      cabextract
+      libusb1
+      libpulseaudio
+      libGL
+      vulkan-loader
+      udev
+    ]);
+
+  multiPkgs =
+    pkgs:
+    (fhsArgs.multiPkgs pkgs)
+    ++ (with pkgs; [
+      libGL
+      vulkan-loader
+      libpulseaudio
+    ]);
+
+  runScript = writeShellScript "hydra-launcher-run" ''
+    exec ${appimageContents}/hydralauncher --no-sandbox "$@"
+  '';
 
   extraInstallCommands = ''
     install -Dm644 \
@@ -28,14 +60,15 @@ appimageTools.wrapType2 {
     substituteInPlace $out/share/applications/Hydra-Launcher.desktop \
       --replace-fail 'Name=Hydra' 'Name=Hydra Launcher' \
       --replace-fail 'Exec=AppRun --no-sandbox %U' 'Exec=hydra-launcher %U'
-  '';
 
-  postInstall = ''
-    ln -s $out/bin/hydralauncher $out/bin/hydra-launcher
+    install -Dm644 \
+      ${appimageContents}/hydralauncher.png \
+      $out/share/icons/hicolor/512x512/apps/hydralauncher.png
+
+    ln -s $out/bin/hydra-launcher $out/bin/hydralauncher
   '';
 
   meta = {
-    name = "Hydra Launcher";
     description = "Game launcher";
     homepage = "https://github.com/hydralauncher/hydra";
     license = lib.licenses.mit;
