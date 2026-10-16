@@ -6,11 +6,11 @@
 
 let
   pname = "hydra-launcher";
-  version = "4.1.6";
+  version = "4.2.0";
 
   src = fetchurl {
     url = "https://github.com/hydralauncher/hydra/releases/download/v${version}/hydralauncher-${version}.AppImage";
-    hash = "sha256-yX4FsqFS3udMAlokRPk5YbzmmOjnkNIxfCs7en2cv8I=";
+    hash = "sha256-p/97sPEx00DWhXR2WfkoNxEkBC7FKl94l8apD7zv3gc=";
   };
 
   appimageContents = appimageTools.extract {
