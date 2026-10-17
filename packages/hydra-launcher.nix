@@ -25,6 +25,10 @@ appimageTools.wrapType2 {
       ${appimageContents}/hydralauncher.desktop \
       $out/share/applications/Hydra-Launcher.desktop
 
+    install -Dm644 \
+      ${appimageContents}/usr/share/icons/hicolor/512x512/apps/hydralauncher.png \
+      $out/share/icons/hicolor/512x512/apps/hydralauncher.png
+
     substituteInPlace $out/share/applications/Hydra-Launcher.desktop \
       --replace-fail 'Name=Hydra' 'Name=Hydra Launcher' \
       --replace-fail 'Exec=AppRun --no-sandbox %U' 'Exec=hydra-launcher %U'
