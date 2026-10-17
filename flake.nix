@@ -28,6 +28,7 @@
         sklauncher = pkgs.callPackage ./packages/sklauncher.nix { };
         hydra-launcher = pkgs.callPackage ./packages/hydra-launcher.nix { };
         modrinth = pkgs.callPackage ./packages/modrinth.nix { };
+        lumine-capture = pkgs.callPackage ./packages/lumine-capture.nix { };
       };
 
       nixosModules.natsumi = mkNatsumiModule { isHomeManager = false; };
