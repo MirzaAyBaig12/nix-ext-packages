@@ -60,7 +60,7 @@ stdenv.mkDerivation {
       $out/share/applications/lumine-capture.desktop
     substituteInPlace $out/share/applications/lumine-capture.desktop \
       --replace-fail 'Name=LumineCapture' 'Name=Lumine Capture' \
-      --replace-fail 'Exec=/usr/bin/lumine-capture' 'Exec=lumine-capture'
+      --replace-fail 'Exec=/usr/bin/lumine-capture' "Exec=$out/bin/lumine-capture"
 
     cp -r usr/share/icons $out/share/
 
