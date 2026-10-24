@@ -29,6 +29,7 @@
         hydra-launcher = pkgs.callPackage ./packages/hydra-launcher.nix { };
         modrinth = pkgs.callPackage ./packages/modrinth.nix { };
         lumine-capture = pkgs.callPackage ./packages/lumine-capture.nix { };
+        ventoy = pkgs.callPackage ./packages/ventoy.nix { };
       };
 
       nixosModules.natsumi = mkNatsumiModule { isHomeManager = false; };
