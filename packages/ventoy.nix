@@ -159,6 +159,24 @@ stdenv.mkDerivation {
     mv "$VENTOY_PATH"/tool/x86_64/Ventoy2Disk.gtk3 "$VENTOY_PATH"/tool/x86_64/Ventoy2Disk.gtk3.real
     cat > "$VENTOY_PATH"/tool/x86_64/Ventoy2Disk.gtk3 <<EOF
     #!${runtimeShell}
+    # VentoyGUI re-runs this as root via pkexec, which only passes DISPLAY along.
+    # The X server refuses root, so point it at the invoking user's Wayland socket.
+    uid=\$PKEXEC_UID
+    [ -n "\$uid" ] || uid=\$SUDO_UID
+    if [ -n "\$uid" ] && [ -d "/run/user/\$uid" ]; then
+      [ -n "\$XDG_RUNTIME_DIR" ] || export XDG_RUNTIME_DIR="/run/user/\$uid"
+      if [ -z "\$WAYLAND_DISPLAY" ]; then
+        for s in "\$XDG_RUNTIME_DIR"/wayland-*; do
+          case "\$s" in *.lock) continue ;; esac
+          if [ -S "\$s" ]; then
+            WAYLAND_DISPLAY="\$(${coreutils}/bin/basename "\$s")"
+            export WAYLAND_DISPLAY
+            break
+          fi
+        done
+      fi
+      [ -n "\$GDK_BACKEND" ] || export GDK_BACKEND=wayland,x11
+    fi
     exec ${stdenv.cc.bintools.dynamicLinker} --library-path ${lib.makeLibraryPath guiLibs} "$VENTOY_PATH/tool/x86_64/Ventoy2Disk.gtk3.real" "\$@"
     EOF
     chmod a+x "$VENTOY_PATH"/tool/x86_64/Ventoy2Disk.gtk3
