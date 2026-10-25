@@ -175,8 +175,10 @@ stdenv.mkDerivation {
           fi
         done
       fi
-      [ -n "\$GDK_BACKEND" ] || export GDK_BACKEND=wayland,x11
     fi
+    # VentoyGUI forces GDK_BACKEND=x11 (and keeps it through pkexec), which root
+    # can't use here, so prefer Wayland whenever there is a socket to talk to.
+    [ -z "\$WAYLAND_DISPLAY" ] || export GDK_BACKEND=wayland,x11
     exec ${stdenv.cc.bintools.dynamicLinker} --library-path ${lib.makeLibraryPath guiLibs} "$VENTOY_PATH/tool/x86_64/Ventoy2Disk.gtk3.real" "\$@"
     EOF
     chmod a+x "$VENTOY_PATH"/tool/x86_64/Ventoy2Disk.gtk3
