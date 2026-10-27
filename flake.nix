@@ -30,6 +30,7 @@
         modrinth = pkgs.callPackage ./packages/modrinth.nix { };
         lumine-capture = pkgs.callPackage ./packages/lumine-capture.nix { };
         ventoy = pkgs.callPackage ./packages/ventoy.nix { };
+        bibata-material-cursor = pkgs.callPackage ./packages/bibata-material-cursor.nix { };
       };
 
       nixosModules.natsumi = mkNatsumiModule { isHomeManager = false; };
