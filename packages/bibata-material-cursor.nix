@@ -1,5 +1,5 @@
 /*
-  Bibata Material cursor themes (Ayaan's Material Design 3 fork of Bibata).
+  Bibata Material cursor themes (SakibShahariar/material-bibata-cursor, a Material Design 3 take on Bibata).
   nixpkgs' bibata-cursors has no Material variants, so this is packaged from the
   prebuilt release tarball (dark variants only, under share/icons, e.g. Bibata-Material-Lilac).
   Upstream split the release into dark/light tarballs after 1.2.1; this packages the dark one.
@@ -37,7 +37,7 @@ stdenvNoCC.mkDerivation {
   '';
 
   meta = {
-    description = "Bibata cursor themes (dark variants) using Material Design 3's tonal system (Ayaan's fork)";
+    description = "Bibata cursor themes (dark variants) using Material Design 3's tonal system";
     homepage = "https://github.com/SakibShahariar/material-bibata-cursor";
     license = lib.licenses.gpl3Only;
     platforms = lib.platforms.all;
