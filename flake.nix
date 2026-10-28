@@ -31,9 +31,19 @@
         lumine-capture = pkgs.callPackage ./packages/lumine-capture.nix { };
         ventoy = pkgs.callPackage ./packages/ventoy.nix { };
         bibata-material-cursor = pkgs.callPackage ./packages/bibata-material-cursor.nix { };
+        browser-ext-sync = pkgs.callPackage ./packages/browser-ext-sync.nix { };
+      };
+
+      # `pkgs.browser-ext-sync`: declarative Web Store extensions for Helium +
+      # ungoogled-chromium (see packages/browser-ext-sync.nix).
+      overlays.default = final: _prev: {
+        browser-ext-sync = final.callPackage ./packages/browser-ext-sync.nix { };
       };
 
       nixosModules.natsumi = mkNatsumiModule { isHomeManager = false; };
       homeManagerModules.natsumi = mkNatsumiModule { isHomeManager = true; };
+
+      # programs.{ungoogled-chromium,helium}.extensions (see modules/browser-extensions.nix)
+      homeManagerModules.browser-extensions = ./modules/browser-extensions.nix;
     };
 }
