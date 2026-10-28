@@ -11,13 +11,16 @@
 #   };
 #   programs.helium.extensions = { enable = true; ids = [ "..." ]; pinned = [ ... ]; };
 #
-# - ungoogled-chromium: unpacked copies are loaded with --load-extension via
-#   `programs.chromium` (the package is wrapped with those flags). Don't also
-#   install ungoogled-chromium system-wide and don't set the nixos
-#   `programs.chromium.extensions` policy: a force-installed id can't also be
-#   loaded unpacked ("blocked by the administrator").
-# - Helium: external_crx jsons in its External Extensions dir. It already ships
-#   uBlock Origin, so that option only exists for ungoogled-chromium.
+# - ungoogled-chromium: unpacked copies are loaded with --load-extension. This
+#   module does NOT install any browser. It exposes the flags as
+#   `programs.ungoogled-chromium.extensions.commandLineArgs` and a ready-made
+#   `.wrapped` package (your ungoogled-chromium + those flags) for you to put in
+#   home.packages / systemPackages yourself. A plain, unwrapped chromium just
+#   won't load the extensions. Don't set the nixos `programs.chromium.extensions`
+#   policy either: a force-installed id can't also be loaded unpacked
+#   ("blocked by the administrator").
+# - Helium: external_crx jsons in its External Extensions dir; the Helium package
+#   is yours to install. uBlock Origin is only handled for ungoogled-chromium.
 #
 # `pinned` is additive: it pins the listed ids, it never unpins anything you
 # pinned by hand. It's applied at launch (chromium) and on every sync, and
@@ -63,6 +66,14 @@ let
 
   pinCmd = dir: pins: "${sync} pin ${lib.escapeShellArg dir} ${lib.escapeShellArgs pins}";
 
+  chromiumArgs = [
+    # Newer Chromium gates --load-extension behind this feature.
+    "--disable-features=DisableLoadExtensionCommandLineSwitch"
+    "--load-extension=${lib.concatStringsSep "," loadList}"
+  ] ++ lib.optional (uPinned != [ ])
+    # Raw shell in the nixpkgs wrapper: pins before launch, prints nothing.
+    "$(${pinCmd chromiumDir uPinned} >/dev/null 2>&1 || true)";
+
   syncAll = pkgs.writeShellScript "browser-ext-sync-all" ''
     ${lib.optionalString u.enable ''
       ${sync} --chromium ${lib.optionalString u.uBlockOrigin "--ublock-origin"} ${lib.escapeShellArgs uIds} || true
@@ -98,7 +109,17 @@ in
         type = types.package;
         default = pkgs.ungoogled-chromium;
         defaultText = lib.literalExpression "pkgs.ungoogled-chromium";
-        description = "ungoogled-chromium package to wrap with the extension flags.";
+        description = "ungoogled-chromium package used to build `wrapped`. Not installed by this module.";
+      };
+      commandLineArgs = mkOption {
+        type = types.listOf types.str;
+        readOnly = true;
+        description = "Flags that load the extensions (for wrapping your own chromium).";
+      };
+      wrapped = mkOption {
+        type = types.package;
+        readOnly = true;
+        description = "`package` wrapped with the extension flags. Install this yourself.";
       };
     };
 
@@ -132,16 +153,9 @@ in
   };
 
   config = mkIf (u.enable || h.enable) {
-    programs.chromium = mkIf u.enable {
-      enable = true;
-      package = u.package;
-      commandLineArgs = [
-        # Newer Chromium gates --load-extension behind this feature.
-        "--disable-features=DisableLoadExtensionCommandLineSwitch"
-        "--load-extension=${lib.concatStringsSep "," loadList}"
-      ] ++ lib.optional (uPinned != [ ])
-        # Raw shell in the wrapper: pins before launch, prints nothing.
-        "$(${pinCmd chromiumDir uPinned} >/dev/null 2>&1 || true)";
+    programs.ungoogled-chromium.extensions = mkIf u.enable {
+      commandLineArgs = chromiumArgs;
+      wrapped = u.package.override { commandLineArgs = lib.concatStringsSep " " chromiumArgs; };
     };
 
     home.activation.browserExtensions = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
