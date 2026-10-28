@@ -8,11 +8,13 @@ re='github\.com/([^/]+)/([^/]+)/releases/download/([^$]*)\$\{version\}'
 
 for file in packages/*.nix; do
   name=$(basename "$file" .nix)
-  url=$(grep -oP '^\s*url = "\K[^"]+' "$file" | head -1)
-  cur=$(grep -oP '^\s*version = "\K[^"]+' "$file" | head -1)
-  old_hash=$(grep -oP '^\s*hash = "\K[^"]+' "$file" | head -1)
+  # grep exits 1 on no match (e.g. packages that don't fetch anything, like
+  # browser-ext-sync), which would kill the script under pipefail.
+  url=$(grep -oP '^\s*url = "\K[^"]+' "$file" | head -1 || true)
+  cur=$(grep -oP '^\s*version = "\K[^"]+' "$file" | head -1 || true)
+  old_hash=$(grep -oP '^\s*hash = "\K[^"]+' "$file" | head -1 || true)
 
-  if [[ ! $url =~ $re ]]; then
+  if [[ -z $url || ! $url =~ $re ]]; then
     echo "[$name] url isn't a GitHub release pattern, skipping"
     continue
   fi
