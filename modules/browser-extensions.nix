@@ -20,7 +20,8 @@
 #   policy either: a force-installed id can't also be loaded unpacked
 #   ("blocked by the administrator").
 # - Helium: external_crx jsons in its External Extensions dir; the Helium package
-#   is yours to install. uBlock Origin is only handled for ungoogled-chromium.
+#   is yours to install. It ships uBlock Origin itself; we only keep it pinned.
+#   (Installing uBlock Origin is ungoogled-chromium only.)
 #
 # `pinned` is authoritative: on every home-manager switch the toolbar-pinned
 # list is set to exactly what you list (adds AND removes). That write is skipped
@@ -56,8 +57,12 @@ let
   uExtra = { "ublock-origin" = uboId; };
   uIds = toIds u.ids;
   hIds = toIds h.ids;
-  uPinned = map (resolve u.ids uExtra) u.pinned;
-  hPinned = map (resolve h.ids { }) h.pinned;
+  # uBlock Origin is always pinned: ours is added automatically, and Helium's
+  # built-in one is added too (pins are authoritative, so leaving it out would
+  # unpin the one Helium pins by default). No need to list either in `pinned`.
+  heliumUboId = "blockjmkbacgjkknlgpkjjiijinjdanf";
+  uPinned = lib.unique ((map (resolve u.ids uExtra) u.pinned) ++ lib.optional u.uBlockOrigin uboId);
+  hPinned = lib.unique ((lib.filter (x: x != "ublock-origin") (map (resolve h.ids { }) h.pinned)) ++ [ heliumUboId ]);
 
   sync = "${syncCfg.package}/bin/browser-ext-sync";
   home = config.home.homeDirectory;
@@ -109,8 +114,8 @@ in
       pinned = mkOption {
         type = pinnedType;
         default = [ ];
-        example = [ "ublock-origin" "proton-pass" ];
-        description = "Extensions to pin to the toolbar: names from `ids` (or \"ublock-origin\"), or raw ids. Additive.";
+        example = [ "proton-pass" "stylus" ];
+        description = "Extensions to pin to the toolbar: names from `ids`, or raw ids. Authoritative (see top of file). uBlock Origin is pinned automatically when `uBlockOrigin` is on.";
       };
       uBlockOrigin = mkOption {
         type = types.bool;
@@ -149,7 +154,7 @@ in
       pinned = mkOption {
         type = pinnedType;
         default = [ ];
-        description = "Extensions to pin to the toolbar: names from `ids`, or raw ids. Additive.";
+        description = "Extensions to pin to the toolbar: names from `ids`, or raw ids. Authoritative (see top of file). Helium's built-in uBlock Origin is kept pinned automatically.";
       };
     };
 
