@@ -107,9 +107,13 @@ in
       };
       package = mkOption {
         type = types.package;
-        default = pkgs.ungoogled-chromium;
-        defaultText = lib.literalExpression "pkgs.ungoogled-chromium";
-        description = "ungoogled-chromium package used to build `wrapped`. Not installed by this module.";
+        default = pkgs.ungoogled-chromium-base or pkgs.ungoogled-chromium;
+        defaultText = lib.literalExpression "pkgs.ungoogled-chromium-base or pkgs.ungoogled-chromium";
+        description = ''
+          ungoogled-chromium package used to build `wrapped`. Not installed by this module.
+          Defaults to `pkgs.ungoogled-chromium-base` (from the nix-ext-packages overlay), the
+          untouched original, so overriding `pkgs.ungoogled-chromium` with `.wrapped` doesn't recurse.
+        '';
       };
       commandLineArgs = mkOption {
         type = types.listOf types.str;

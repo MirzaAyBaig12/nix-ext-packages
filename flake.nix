@@ -35,8 +35,14 @@
 
       # `pkgs.browser-ext-sync`: declarative Web Store extensions for Helium +
       # ungoogled-chromium (see packages/browser-ext-sync.nix).
-      overlays.default = final: _prev: {
+      #
+      # `pkgs.ungoogled-chromium-base` is the ungoogled-chromium as it was when this
+      # overlay ran. The browser-extensions module builds `.wrapped` from it, so a
+      # later overlay that replaces `pkgs.ungoogled-chromium` with `.wrapped`
+      # doesn't cause infinite recursion. Keep this overlay BEFORE such overrides.
+      overlays.default = final: prev: {
         browser-ext-sync = final.callPackage ./packages/browser-ext-sync.nix { };
+        ungoogled-chromium-base = prev.ungoogled-chromium;
       };
 
       nixosModules.natsumi = mkNatsumiModule { isHomeManager = false; };
