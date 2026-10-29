@@ -7,11 +7,11 @@
 
 let
   pname = "modrinth";
-  version = "0.22.0";
+  version = "0.22.1";
 
   src = fetchurl {
     url = "https://github.com/modrinth/code/releases/download/v${version}/Modrinth.App_${version}_amd64.AppImage";
-    hash = "sha256-rwJThDMlt4E1lKj5TT3QIIgWWCYcFRS/TyGHvPdZiDk=";
+    hash = "sha256-qBU1xV6V6iYzXVxkjd7Ps56Kv5s/pr8n2PoAwWz38WE=";
   };
 
   appimageContents = appimageTools.extract {
