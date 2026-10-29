@@ -22,13 +22,16 @@
 # - Helium: external_crx jsons in its External Extensions dir; the Helium package
 #   is yours to install. uBlock Origin is only handled for ungoogled-chromium.
 #
-# `pinned` is additive: it pins the listed ids, it never unpins anything you
-# pinned by hand. It's applied at launch (chromium) and on every sync, and
-# skipped while the browser is running.
+# `pinned` is authoritative: on every home-manager switch the toolbar-pinned
+# list is set to exactly what you list (adds AND removes). That write is skipped
+# while the browser is running (it would overwrite the file on exit), so close the
+# browser before switching if you changed `pinned`. (ungoogled-chromium also
+# re-adds missing pins at launch, without removing any.)
 #
-# Extensions are re-synced on every home-manager switch and (optionally) once a
-# day by a user timer. Nothing is touched unless a new version exists. New
-# versions apply on the next browser restart.
+# Extensions are synced ONLY on home-manager switch (no timer): new versions are
+# fetched, and anything you removed from `ids` is removed too (Helium drops the
+# extension on its next start; ungoogled-chromium's unpacked copy is deleted).
+# New versions apply on the next browser restart.
 let
   inherit (lib) mkEnableOption mkOption mkIf types;
 
@@ -64,7 +67,9 @@ let
   unpackedDir = id: "${home}/.local/share/browser-extensions/unpacked/${id}";
   loadList = (map unpackedDir uIds) ++ lib.optional u.uBlockOrigin (unpackedDir "ublock-origin");
 
+  # authoritative (set) on switch; add-only at browser launch.
   pinCmd = dir: pins: "${sync} pin ${lib.escapeShellArg dir} ${lib.escapeShellArgs pins}";
+  pinAddCmd = dir: pins: "${sync} pin --add ${lib.escapeShellArg dir} ${lib.escapeShellArgs pins}";
 
   chromiumArgs = [
     # Newer Chromium gates --load-extension behind this feature.
@@ -72,17 +77,24 @@ let
     "--load-extension=${lib.concatStringsSep "," loadList}"
   ] ++ lib.optional (uPinned != [ ])
     # Raw shell in the nixpkgs wrapper: pins before launch, prints nothing.
-    "$(${pinCmd chromiumDir uPinned} >/dev/null 2>&1 || true)";
+    "$(${pinAddCmd chromiumDir uPinned} >/dev/null 2>&1 || true)";
+
+  # ids any enabled browser still wants (cache pruning keeps these)
+  allIds = lib.unique (
+    (lib.optionals u.enable uIds)
+    ++ (lib.optionals h.enable hIds)
+  );
 
   syncAll = pkgs.writeShellScript "browser-ext-sync-all" ''
     ${lib.optionalString u.enable ''
-      ${sync} --chromium ${lib.optionalString u.uBlockOrigin "--ublock-origin"} ${lib.escapeShellArgs uIds} || true
-      ${lib.optionalString (uPinned != [ ]) "${pinCmd chromiumDir uPinned} || true"}
+      ${sync} --chromium --prune ${lib.optionalString u.uBlockOrigin "--ublock-origin"} ${lib.escapeShellArgs uIds} || true
+      ${pinCmd chromiumDir uPinned} || true
     ''}
     ${lib.optionalString h.enable ''
-      ${sync} --helium ${lib.escapeShellArgs hIds} || true
-      ${lib.optionalString (hPinned != [ ]) "${pinCmd heliumDir hPinned} || true"}
+      ${sync} --helium --prune ${lib.escapeShellArgs hIds} || true
+      ${pinCmd heliumDir hPinned} || true
     ''}
+    ${sync} prune-cache ${lib.escapeShellArgs allIds} || true
   '';
 in
 {
@@ -148,11 +160,6 @@ in
         defaultText = lib.literalExpression "pkgs.browser-ext-sync";
         description = "The browser-ext-sync package (from the nix-ext-packages overlay).";
       };
-      autoUpdate = mkOption {
-        type = types.bool;
-        default = true;
-        description = "Also re-sync once a day with a systemd user timer (not only on home-manager switch).";
-      };
     };
   };
 
@@ -162,29 +169,9 @@ in
       wrapped = u.package.override { commandLineArgs = lib.concatStringsSep " " chromiumArgs; };
     };
 
+    # Only runs on home-manager switch (no timer): update, add, remove, re-pin.
     home.activation.browserExtensions = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
       run ${syncAll} || true
     '';
-
-    systemd.user.services.browser-ext-sync = mkIf syncCfg.autoUpdate {
-      Unit = {
-        Description = "Sync Web Store extensions for Helium / ungoogled-chromium";
-        # home-manager switch already syncs; don't run again just because the unit changed.
-        X-RestartIfChanged = false;
-      };
-      Service = {
-        Type = "oneshot";
-        ExecStart = "${syncAll}";
-      };
-    };
-    systemd.user.timers.browser-ext-sync = mkIf syncCfg.autoUpdate {
-      Unit.Description = "Daily Web Store extension sync";
-      Timer = {
-        OnCalendar = "daily";
-        Persistent = true;
-        RandomizedDelaySec = "30m";
-      };
-      Install.WantedBy = [ "timers.target" ];
-    };
   };
 }

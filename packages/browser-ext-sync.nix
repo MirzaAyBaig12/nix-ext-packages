@@ -1,7 +1,8 @@
 { lib, writeShellScriptBin, writeText, curl, gnugrep, coreutils, unzip, python3 }:
 
-# browser-ext-sync [--helium] [--chromium] [--ublock-origin] <extension-id>...
-# browser-ext-sync pin <user-data-dir> <extension-id>...
+# browser-ext-sync [--helium] [--chromium] [--ublock-origin] [--prune] <extension-id>...
+# browser-ext-sync pin [--add] <user-data-dir> <extension-id>...
+# browser-ext-sync prune-cache <extension-id>...
 #
 # Declarative Chrome Web Store extensions for browsers that won't install
 # them on their own:
@@ -17,7 +18,15 @@
 #               extension keeps its real Web Store id.
 #   --ublock-origin  (with --chromium) also install uBlock Origin (MV2) from its
 #               GitHub release; Web Store only ships uBO Lite now. id below.
-# `pin` adds ids to the browser's toolbar-pinned list (skips if it's running).
+# --prune     also REMOVE what's no longer in the id list: Helium's external_crx
+#             jsons (Helium uninstalls the orphaned extension on its next start)
+#             and ungoogled-chromium's unpacked copies. Without it nothing is
+#             ever deleted.
+# `pin` SETS the browser's toolbar-pinned list to exactly the given ids (adds
+#   and removes; skips if the browser is running, since it would overwrite the
+#   file on exit). With --add it only appends (used at browser launch so it
+#   doesn't wipe pins you made by hand between rebuilds).
+# `prune-cache` deletes cached CRXs that aren't in the given id list.
 # No flag = helium + chromium. Offline / failures just skip and keep what's cached.
 let
   # CRX3 header -> public key whose sha256 matches the crx_id -> manifest "key".
@@ -79,11 +88,17 @@ let
     with open(manifest, "w") as fh:
         json.dump(m, fh, indent=2)
   '';
-  # Add ids to extensions.pinned_extensions in <user-data-dir>/Default/Preferences.
+  # Set (or, with --add, append to) extensions.pinned_extensions in
+  # <user-data-dir>/Default/Preferences.
   pinPy = writeText "pin-extensions.py" ''
     import json, os, sys
 
-    d, ids = sys.argv[1], sys.argv[2:]
+    args = sys.argv[1:]
+    add_only = False
+    if args and args[0] == "--add":
+        add_only = True
+        args = args[1:]
+    d, ids = args[0], args[1:]
     lock = os.path.join(d, "SingletonLock")
     if os.path.islink(lock):
         try:
@@ -107,7 +122,7 @@ let
 
     ext = data.setdefault("extensions", {})
     cur = list(ext.get("pinned_extensions", []))
-    new = cur + [i for i in ids if i not in cur]
+    new = cur + [i for i in ids if i not in cur] if add_only else list(ids)
     if new != cur:
         ext["pinned_extensions"] = new
         with open(path + ".tmp", "w") as fh:
@@ -123,15 +138,34 @@ writeShellScriptBin "browser-ext-sync" ''
     exec python3 ${pinPy} "$@"
   fi
 
+  # Delete cached CRXs for ids that aren't wanted anymore (one run, union of all ids).
+  if [ "''${1:-}" = prune-cache ]; then
+    shift
+    base="$HOME/.local/share/browser-extensions"
+    for f in "$base"/crx/*.crx; do
+      [ -e "$f" ] || continue
+      id=$(basename "$f" .crx)
+      keep=0
+      for w in "$@"; do [ "$w" = "$id" ] && keep=1; done
+      if [ "$keep" = 0 ]; then
+        rm -f "$f" "$base/crx/$id.version"
+        echo "browser-ext-sync: pruned cache $id"
+      fi
+    done
+    exit 0
+  fi
+
   want_helium=0
   want_chromium=0
   want_ubo=0
+  want_prune=0
   ids=()
   for a in "$@"; do
     case "$a" in
       --helium) want_helium=1 ;;
       --chromium) want_chromium=1 ;;
       --ublock-origin) want_ubo=1 ;;
+      --prune) want_prune=1 ;;
       *) ids+=("$a") ;;
     esac
   done
@@ -218,6 +252,37 @@ writeShellScriptBin "browser-ext-sync" ''
       fi
     else
       echo "browser-ext-sync: skip ublock-origin (couldn't find release)"
+    fi
+  fi
+
+  # Remove whatever is no longer in the list (only with --prune). Done from the
+  # requested ids, not the successful ones, so being offline never deletes anything.
+  if [ "$want_prune" = 1 ]; then
+    in_ids() { local x; for x in "''${ids[@]}"; do [ "$x" = "$1" ] && return 0; done; return 1; }
+
+    if [ "$want_helium" = 1 ]; then
+      for f in "$helium_ext"/*.json; do
+        [ -e "$f" ] || [ -L "$f" ] || continue
+        id=$(basename "$f" .json)
+        # only touch files that look like extension ids
+        grep -qE '^[a-p]{32}$' <<<"$id" || continue
+        if ! in_ids "$id"; then
+          rm -f "$f"
+          echo "browser-ext-sync: removed $id from helium (gone on next browser start)"
+        fi
+      done
+    fi
+
+    if [ "$want_chromium" = 1 ]; then
+      for d in "$base"/unpacked/*/; do
+        [ -d "$d" ] || continue
+        id=$(basename "$d")
+        if [ "$id" = ublock-origin ] && [ "$want_ubo" = 1 ]; then continue; fi
+        if ! in_ids "$id"; then
+          rm -rf "$d" "$base/unpacked/$id.version"
+          echo "browser-ext-sync: removed $id from chromium"
+        fi
+      done
     fi
   fi
 ''
