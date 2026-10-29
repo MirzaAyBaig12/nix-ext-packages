@@ -104,7 +104,46 @@ let
     ++ (lib.optionals h.enable hIds)
   );
 
+  # name/id pairs, so changes can be reported by name (a plain list uses the id).
+  toPairs = ids:
+    if builtins.isAttrs ids
+    then lib.mapAttrsToList (n: v: { inherit n v; }) ids
+    else map (v: { n = v; inherit v; }) ids;
+  uPairs = toPairs u.ids ++ lib.optional u.uBlockOrigin { n = "ublock-origin"; v = uboId; };
+  hPairs = toPairs h.ids;
+
+  # Prints "<name> added/removed" by diffing against the list from the last
+  # switch (first run just records a baseline). Also pops a notification.
+  report = browser: pairs: ''
+    new=$(mktemp)
+    printf '%s\t%s\n' ${lib.escapeShellArgs (lib.concatMap (p: [ p.n p.v ]) pairs)} | sort -u > "$new"
+    old="$state/${browser}.list"
+    if [ -f "$old" ]; then
+      while IFS=$'\t' read -r name _; do
+        [ -n "$name" ] || continue
+        echo "browser-extensions [${browser}]: $name added"
+        changes="$changes+ $name (${browser})"$'\n'
+      done < <(awk -F'\t' 'NR==FNR{o[$2]=1; next} !($2 in o)' "$old" "$new")
+      while IFS=$'\t' read -r name _; do
+        [ -n "$name" ] || continue
+        echo "browser-extensions [${browser}]: $name removed"
+        changes="$changes- $name (${browser})"$'\n'
+      done < <(awk -F'\t' 'NR==FNR{n[$2]=1; next} !($2 in n)' "$new" "$old")
+    fi
+    mv -f "$new" "$old"
+  '';
+
   syncAll = pkgs.writeShellScript "browser-ext-sync-all" ''
+    export PATH=${lib.makeBinPath [ pkgs.coreutils pkgs.gawk pkgs.libnotify ]}:$PATH
+    state="$HOME/.local/share/browser-extensions/state"
+    mkdir -p "$state"
+    changes=""
+    ${lib.optionalString u.enable (report "ungoogled-chromium" uPairs)}
+    ${lib.optionalString h.enable (report "helium" hPairs)}
+    if [ -n "$changes" ]; then
+      DBUS_SESSION_BUS_ADDRESS="''${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}" \
+        notify-send -a browser-extensions "Browser extensions changed" "$changes" 2>/dev/null || true
+    fi
     ${lib.optionalString u.enable ''
       ${sync} --chromium --prune ${lib.optionalString u.uBlockOrigin "--ublock-origin"} ${lib.escapeShellArgs uIds} || true
       ${pinCmd chromiumDir uPinned} || true
