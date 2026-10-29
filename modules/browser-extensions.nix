@@ -57,12 +57,26 @@ let
   uExtra = { "ublock-origin" = uboId; };
   uIds = toIds u.ids;
   hIds = toIds h.ids;
-  # uBlock Origin is always pinned: ours is added automatically, and Helium's
-  # built-in one is added too (pins are authoritative, so leaving it out would
-  # unpin the one Helium pins by default). No need to list either in `pinned`.
-  heliumUboId = "blockjmkbacgjkknlgpkjjiijinjdanf";
+  # ungoogled-chromium: our uBlock Origin is pinned automatically. Helium pins its
+  # built-in one by itself, so it is never added (and "ublock-origin" is ignored).
   uPinned = lib.unique ((map (resolve u.ids uExtra) u.pinned) ++ lib.optional u.uBlockOrigin uboId);
-  hPinned = lib.unique ((lib.filter (x: x != "ublock-origin") (map (resolve h.ids { }) h.pinned)) ++ [ heliumUboId ]);
+  hPinned = lib.filter (x: x != "ublock-origin") (map (resolve h.ids { }) h.pinned);
+
+  # Extension ids are exactly 32 letters, a-p only.
+  validId = id: builtins.match "[a-p]{32}" id != null;
+  describeBad = ids:
+    let
+      pairs = if builtins.isAttrs ids
+        then lib.mapAttrsToList (n: v: { inherit n v; }) ids
+        else map (v: { n = v; inherit v; }) ids;
+    in map (p: "${p.n} = \"${p.v}\" (${toString (builtins.stringLength p.v)} chars)")
+      (lib.filter (p: !validId p.v) pairs);
+  badPinned = ids: pinned: extra:
+    lib.filter (id: !(validId id) && id != "ublock-origin") pinned;
+  mkAssertion = option: bad: {
+    assertion = bad == [ ];
+    message = "${option}: invalid Chrome Web Store extension id(s), expected 32 letters a-p: ${lib.concatStringsSep ", " bad}";
+  };
 
   sync = "${syncCfg.package}/bin/browser-ext-sync";
   home = config.home.homeDirectory;
@@ -154,7 +168,7 @@ in
       pinned = mkOption {
         type = pinnedType;
         default = [ ];
-        description = "Extensions to pin to the toolbar: names from `ids`, or raw ids. Authoritative (see top of file). Helium's built-in uBlock Origin is kept pinned automatically.";
+        description = "Extensions to pin to the toolbar: names from `ids`, or raw ids. Authoritative (see top of file). Helium pins its own uBlock Origin; don't list it.";
       };
     };
 
@@ -169,6 +183,13 @@ in
   };
 
   config = mkIf (u.enable || h.enable) {
+    assertions = [
+      (mkAssertion "programs.ungoogled-chromium.extensions.ids" (lib.optionals u.enable (describeBad u.ids)))
+      (mkAssertion "programs.ungoogled-chromium.extensions.pinned (not a name in `ids`)" (lib.optionals u.enable (badPinned u.ids (map (resolve u.ids uExtra) u.pinned) { })))
+      (mkAssertion "programs.helium.extensions.ids" (lib.optionals h.enable (describeBad h.ids)))
+      (mkAssertion "programs.helium.extensions.pinned (not a name in `ids`)" (lib.optionals h.enable (badPinned h.ids (map (resolve h.ids { }) h.pinned) { })))
+    ];
+
     programs.ungoogled-chromium.extensions = mkIf u.enable {
       commandLineArgs = chromiumArgs;
       wrapped = u.package.override { commandLineArgs = lib.concatStringsSep " " chromiumArgs; };
