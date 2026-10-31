@@ -21,6 +21,12 @@
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
+      # Only for packages with an unfree license (3uTools), so the rest of the
+      # flake keeps nixpkgs' default (unfree packages refused).
+      pkgsUnfree = import nixpkgs {
+        inherit system;
+        config.allowUnfree = true;
+      };
       mkNatsumiModule = import ./modules/natsumi.nix { inherit fx-autoconfig natsumi; };
     in
     {
@@ -29,6 +35,7 @@
         hydra-launcher = pkgs.callPackage ./packages/hydra-launcher.nix { };
         modrinth = pkgs.callPackage ./packages/modrinth.nix { };
         ventoy = pkgs.callPackage ./packages/ventoy.nix { };
+        "3utools" = pkgsUnfree.callPackage ./packages/3utools.nix { };
         bibata-material-cursor = pkgs.callPackage ./packages/bibata-material-cursor.nix { };
         browser-ext-sync = pkgs.callPackage ./packages/browser-ext-sync.nix { };
       };
