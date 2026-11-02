@@ -35,6 +35,7 @@
         hydra-launcher = pkgs.callPackage ./packages/hydra-launcher.nix { };
         modrinth = pkgs.callPackage ./packages/modrinth.nix { };
         ventoy = pkgs.callPackage ./packages/ventoy.nix { };
+        openidea = pkgs.callPackage ./packages/openidea.nix { };
         "3utools" = pkgsUnfree.callPackage ./packages/3utools.nix { };
         bibata-material-cursor = pkgs.callPackage ./packages/bibata-material-cursor.nix { };
         browser-ext-sync = pkgs.callPackage ./packages/browser-ext-sync.nix { };
