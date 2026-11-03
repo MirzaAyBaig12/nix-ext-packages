@@ -91,6 +91,22 @@ jobs:
               | "- **\($k)**: `\($n[$k].locked.rev // $n[$k].locked.narHash)`"'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # Lix's test suite sandboxes builds inside the Nix build sandbox. Ubuntu 24.04 runners
+      # block unprivileged user namespaces via AppArmor, which fails those tests
+      # ("unshare: cannot change root filesystem propagation") after ~30 min of compiling.
+      - name: Allow unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      # Fail in a minute, not after a 30 min Lix build, if nested namespaces still don't work.
+      - name: Smoke test nested namespaces inside the Nix sandbox
+        run: |
+          nix build --impure --no-link --print-build-logs --expr '
+            with import <nixpkgs> { };
+            runCommand "userns-smoke-test" { nativeBuildInputs = [ util-linux ]; } "
+              unshare --user --map-root-user --mount true
+              touch $out
+            "'
+
       - name: Build and cache
         working-directory: nix-config
         run: |
@@ -104,10 +120,18 @@ jobs:
             config.services.cpak.package    # cpak, from its own flake
           )
           failed=()
+          lix_ok=true
           for t in "${targets[@]}"; do
+            # nix-eval-jobs and nil build against Lix; if Lix itself failed, don't rebuild it for them
+            if [[ "$lix_ok" == false && "$t" =~ ^pkgs\.(nix-eval-jobs|nil)$ ]]; then
+              echo "::warning::skipping $t (needs Lix, which failed)"
+              failed+=("$t")
+              continue
+            fi
             echo "::group::$t"
             if ! nix build ".#nixosConfigurations.$host.$t" --no-link --print-build-logs --print-out-paths; then
               failed+=("$t")
+              [[ "$t" == pkgs.lix ]] && lix_ok=false
             fi
             echo "::endgroup::"
           done
