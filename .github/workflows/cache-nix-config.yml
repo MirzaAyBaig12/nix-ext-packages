@@ -1,0 +1,117 @@
+name: Cache nix-config builds
+
+# Builds the things from MirzaAyBaig12/nix-config that no public binary cache has
+# (Lix from the release-2.96 branch via lix-module, nil, nix-eval-jobs/nix-doc from the
+# lix-module overlay, cpak) and pushes them to Cachix, so `nh os switch` downloads them
+# instead of compiling Lix for ~40 minutes.
+#
+# The targets are taken from the real nixosConfigurations.Axiom, so the derivations (and
+# therefore the store paths) are exactly the ones the laptop asks for. On the schedule the
+# lock is refreshed first (like `nh os switch -u`) so the cache is warm for the newest
+# inputs; the nixpkgs/lix/cpak revisions used are listed in each run's summary.
+#
+# Needs: repo secret CACHIX_AUTH_TOKEN and repo variable CACHIX_CACHE (the cache name).
+
+on:
+  schedule:
+    - cron: "30 */4 * * *"
+  workflow_dispatch:
+    inputs:
+      update_lock:
+        description: "Refresh nix-config's flake.lock before building"
+        type: boolean
+        default: true
+
+env:
+  # Lix branch to build; forced onto nix-config's `lix` input below, so the CI cache
+  # doesn't depend on what branch/tag the pushed nix-config happens to point at.
+  LIX_BRANCH: release-2.96
+
+concurrency:
+  group: cache-nix-config
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  cache:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: actions/checkout@v6
+        with:
+          repository: MirzaAyBaig12/nix-config
+          path: nix-config
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            extra-substituters = https://cache.lix.systems
+            extra-trusted-public-keys = cache.lix.systems:aBnZUw8zA7H35Cz2RyKFVs3H4PlGTLawyY5KRbvJR8o=
+
+      # Sets our cache up as a substituter (so unchanged paths are just downloaded) and
+      # pushes everything this job builds.
+      - uses: cachix/cachix-action@v16
+        with:
+          name: ${{ vars.CACHIX_CACHE }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Point the lix input at the release branch
+        working-directory: nix-config
+        run: |
+          sed -i -E 's|(lix-project/lix/archive/)[^"]+\.tar\.gz|\1refs/heads/${{ env.LIX_BRANCH }}.tar.gz|' flake.nix
+          grep -n 'lix-project/lix/archive' flake.nix
+
+      - name: Update flake.lock (same as `nh os switch -u`)
+        working-directory: nix-config
+        run: |
+          if [[ "${{ github.event_name }}" == "schedule" || "${{ inputs.update_lock }}" == "true" ]]; then
+            nix flake update
+          else
+            nix flake lock
+          fi
+
+      - name: Record input revisions
+        working-directory: nix-config
+        run: |
+          {
+            echo "### Inputs built"
+            nix flake metadata --json | jq -r '
+              .locks.nodes as $n
+              | ["nixpkgs","lix","lix-module","cpak"][]
+              | . as $k
+              | "- **\($k)**: `\($n[$k].locked.rev // $n[$k].locked.narHash)`"'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build and cache
+        working-directory: nix-config
+        run: |
+          set -uo pipefail
+          host=Axiom
+          targets=(
+            pkgs.lix                        # Lix 2.96 branch, built by lix-module's overlay
+            pkgs.nix-eval-jobs              # lix-module overlay (built from Lix's subproject)
+            pkgs.nix-doc                    # lix-module overlay (withPlugin = false)
+            pkgs.nil                        # nil language server (tests run against Lix)
+            config.services.cpak.package    # cpak, from its own flake
+          )
+          failed=()
+          for t in "${targets[@]}"; do
+            echo "::group::$t"
+            if ! nix build ".#nixosConfigurations.$host.$t" --no-link --print-build-logs --print-out-paths; then
+              failed+=("$t")
+            fi
+            echo "::endgroup::"
+          done
+          if (( ${#failed[@]} )); then
+            echo "::error::failed targets: ${failed[*]}"
+            exit 1
+          fi
