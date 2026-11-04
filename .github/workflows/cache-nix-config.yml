@@ -5,22 +5,28 @@ name: Cache nix-config builds
 # lix-module overlay, cpak) and pushes them to Cachix, so `nh os switch` downloads them
 # instead of compiling Lix for ~40 minutes.
 #
+# It only does real work when something is new: every half hour a cheap check (no Nix, a few
+# `git ls-remote` calls) looks at the upstream commits that feed these builds (nixpkgs, the Lix
+# branch, lix-module, cpak). If that exact set was already built, the run ends right there.
+#
 # The targets are taken from the real nixosConfigurations.Axiom, so the derivations (and
-# therefore the store paths) are exactly the ones the laptop asks for. On the schedule the
-# lock is refreshed first (like `nh os switch -u`) so the cache is warm for the newest
-# inputs; the nixpkgs/lix/cpak revisions used are listed in each run's summary.
+# therefore the store paths) are exactly the ones the laptop asks for. The lock is refreshed
+# first (like `nh os switch -u`); the revisions used are listed in each run's summary.
 #
 # Needs: repo secret CACHIX_AUTH_TOKEN and repo variable CACHIX_CACHE (the cache name).
 
 on:
   schedule:
-    - cron: "30 */4 * * *"
+    - cron: "11,41 * * * *"
+  push:
+    paths:
+      - ".github/workflows/cache-nix-config.yml"
   workflow_dispatch:
     inputs:
-      update_lock:
-        description: "Refresh nix-config's flake.lock before building"
+      force:
+        description: "Build even if this exact set of upstream commits was already built"
         type: boolean
-        default: true
+        default: false
 
 env:
   # Lix branch to build; forced onto nix-config's `lix` input below, so the CI cache
@@ -39,17 +45,83 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
+      - uses: actions/checkout@v6
+
+      - name: Look for new upstream commits
+        id: revs
+        run: |
+          set -euo pipefail
+          rev() {
+            local out
+            out=$(git ls-remote "$1" "$2" | head -n1 | cut -f1)
+            [[ -n "$out" ]] || { echo "::error::no revision found for $1 $2"; exit 1; }
+            echo "$out"
+          }
+          {
+            echo "nixpkgs $(rev https://github.com/NixOS/nixpkgs refs/heads/nixos-unstable)"
+            echo "lix ($LIX_BRANCH) $(rev https://git.lix.systems/lix-project/lix "refs/heads/$LIX_BRANCH")"
+            echo "lix-module $(rev https://git.lix.systems/lix-project/nixos-module refs/heads/main)"
+            echo "cpak $(rev https://github.com/Containerpak/cpak refs/heads/v2)"
+            echo "workflow $(sha256sum .github/workflows/cache-nix-config.yml | cut -c1-16)"
+          } | tee revs.txt
+          hash=$(sha256sum revs.txt | cut -c1-24)
+          # a failed attempt is only retried after 6 hours (or when upstream changes / on force)
+          bucket=$(( $(date +%s) / 21600 ))
+          {
+            echo "ok_key=lix-ok-$hash"
+            echo "failed_key=lix-failed-$hash-$bucket"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Built already?
+        id: built
+        uses: actions/cache/restore@v4
+        with:
+          path: .marker
+          key: ${{ steps.revs.outputs.ok_key }}
+          lookup-only: true
+
+      - name: Failed recently?
+        id: failed
+        uses: actions/cache/restore@v4
+        with:
+          path: .marker
+          key: ${{ steps.revs.outputs.failed_key }}
+          lookup-only: true
+
+      - name: Decide
+        id: decide
+        run: |
+          if [[ "${{ inputs.force }}" == "true" ]]; then
+            go=true; msg="forced"
+          elif [[ "${{ steps.built.outputs.cache-hit }}" == "true" ]]; then
+            go=false; msg="nothing new, this exact set of commits is already built and cached"
+          elif [[ "${{ steps.failed.outputs.cache-hit }}" == "true" ]]; then
+            go=false; msg="the last attempt for these commits failed; retrying later (or run with force)"
+          else
+            go=true; msg="new upstream commits, building"
+          fi
+          echo "go=$go" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Lix, nil, cpak: $msg"
+            echo '```'
+            cat revs.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Free disk space
+        if: steps.decide.outputs.go == 'true'
         run: |
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
           df -h /
 
       - uses: actions/checkout@v6
+        if: steps.decide.outputs.go == 'true'
         with:
           repository: MirzaAyBaig12/nix-config
           path: nix-config
 
       - uses: cachix/install-nix-action@v31
+        if: steps.decide.outputs.go == 'true'
         with:
           nix_path: nixpkgs=channel:nixos-unstable
           extra_nix_config: |
@@ -60,26 +132,25 @@ jobs:
       # Sets our cache up as a substituter (so unchanged paths are just downloaded) and
       # pushes everything this job builds.
       - uses: cachix/cachix-action@v16
+        if: steps.decide.outputs.go == 'true'
         with:
           name: ${{ vars.CACHIX_CACHE }}
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Point the lix input at the release branch
+        if: steps.decide.outputs.go == 'true'
         working-directory: nix-config
         run: |
           sed -i -E 's|(lix-project/lix/archive/)[^"]+\.tar\.gz|\1refs/heads/${{ env.LIX_BRANCH }}.tar.gz|' flake.nix
           grep -n 'lix-project/lix/archive' flake.nix
 
       - name: Update flake.lock (same as `nh os switch -u`)
+        if: steps.decide.outputs.go == 'true'
         working-directory: nix-config
-        run: |
-          if [[ "${{ github.event_name }}" == "schedule" || "${{ inputs.update_lock }}" == "true" ]]; then
-            nix flake update
-          else
-            nix flake lock
-          fi
+        run: nix flake update
 
       - name: Record input revisions
+        if: steps.decide.outputs.go == 'true'
         working-directory: nix-config
         run: |
           {
@@ -95,10 +166,12 @@ jobs:
       # block unprivileged user namespaces via AppArmor, which fails those tests
       # ("unshare: cannot change root filesystem propagation") after ~30 min of compiling.
       - name: Allow unprivileged user namespaces
+        if: steps.decide.outputs.go == 'true'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
       # Fail in a minute, not after a 30 min Lix build, if nested namespaces still don't work.
       - name: Smoke test nested namespaces inside the Nix sandbox
+        if: steps.decide.outputs.go == 'true'
         run: |
           nix build --impure --no-link --print-build-logs --expr '
             with import <nixpkgs> { };
@@ -108,6 +181,7 @@ jobs:
             "'
 
       - name: Build and cache
+        if: steps.decide.outputs.go == 'true'
         working-directory: nix-config
         run: |
           set -uo pipefail
@@ -139,3 +213,21 @@ jobs:
             echo "::error::failed targets: ${failed[*]}"
             exit 1
           fi
+
+      - name: Remember that this set was built
+        if: success() && steps.decide.outputs.go == 'true'
+        run: date -u > .marker
+      - uses: actions/cache/save@v4
+        if: success() && steps.decide.outputs.go == 'true'
+        with:
+          path: .marker
+          key: ${{ steps.revs.outputs.ok_key }}
+
+      - name: Remember that this set failed
+        if: failure() && steps.decide.outputs.go == 'true'
+        run: date -u > .marker
+      - uses: actions/cache/save@v4
+        if: failure() && steps.decide.outputs.go == 'true'
+        with:
+          path: .marker
+          key: ${{ steps.revs.outputs.failed_key }}

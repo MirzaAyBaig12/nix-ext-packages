@@ -1,0 +1,194 @@
+name: Cache Dux suite
+
+# Builds the Dux suite (dux-shell, quickshell, dux-greeter, dux-search, dux-gop, dux-files and the
+# dux-plugin-registry plugins enabled in nix-config) from their master branches and pushes it to
+# Cachix, so `nh os switch` downloads them instead of compiling.
+#
+# It only does real work when something is new: every few minutes a cheap check (no Nix, a few
+# `git ls-remote` calls) looks at the upstream commits that feed the build. If that exact set was
+# already built, the run ends right there. The upstream repos are not ours, so we poll them
+# instead of getting a webhook.
+#
+# The packages come from ci/dux/flake.nix, which mirrors nix-config's dux inputs (master branch,
+# same nixpkgs), so the derivations match the ones the laptop evaluates.
+#
+# Needs: repo secret CACHIX_AUTH_TOKEN and repo variable CACHIX_CACHE (the cache name).
+
+on:
+  schedule:
+    - cron: "3,18,33,48 * * * *"
+  push:
+    paths:
+      - ".github/workflows/cache-dux.yml"
+      - "ci/dux/**"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Build even if this exact set of upstream commits was already built"
+        type: boolean
+        default: false
+
+concurrency:
+  group: cache-dux
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  cache:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+
+      # Plugins enabled in nix-config's programs.dank-material-shell.plugins block -> plugins.json
+      # (keeps the committed list if nix-config can't be read or parsed).
+      - name: Read the enabled plugins from nix-config
+        run: |
+          python3 - <<'PY'
+          import json, re, urllib.request
+          url = "https://raw.githubusercontent.com/MirzaAyBaig12/nix-config/main/modules/niri.nix"
+          try:
+              text = urllib.request.urlopen(url, timeout=30).read().decode()
+          except Exception as e:
+              print(f"::warning::could not fetch {url}: {e}; keeping the committed plugins.json")
+              raise SystemExit(0)
+          names, inside = [], False
+          for line in text.splitlines():
+              if not inside:
+                  inside = re.match(r"\s*plugins\s*=\s*\{\s*$", line) is not None
+                  continue
+              if re.match(r"\s*\};\s*$", line):
+                  break
+              m = re.match(r"\s*([A-Za-z0-9_]+)\.enable\s*=\s*true;", line)
+              if m:
+                  names.append(m.group(1))
+          if not names:
+              print("::warning::found no enabled plugins in niri.nix; keeping the committed plugins.json")
+              raise SystemExit(0)
+          json.dump(sorted(names), open("ci/dux/plugins.json", "w"), indent=2)
+          open("ci/dux/plugins.json", "a").write("\n")
+          print("plugins:", ", ".join(sorted(names)))
+          PY
+
+      - name: Look for new upstream commits
+        id: revs
+        run: |
+          set -euo pipefail
+          rev() {
+            local out
+            out=$(git ls-remote "$1" "$2" | head -n1 | cut -f1)
+            [[ -n "$out" ]] || { echo "::error::no revision found for $1 $2"; exit 1; }
+            echo "$out"
+          }
+          {
+            for r in dux-shell dux-greeter dux-search dux-gop dux-files dux-plugin-registry; do
+              echo "$r $(rev "https://github.com/duxlabs-dev/$r" refs/heads/master)"
+            done
+            echo "dux-qml-common $(rev https://github.com/duxlabs-dev/dux-qml-common HEAD)"
+            echo "nixpkgs $(rev https://github.com/NixOS/nixpkgs refs/heads/nixos-unstable)"
+            echo "ci-files $(cat ci/dux/flake.nix ci/dux/plugins.json .github/workflows/cache-dux.yml | sha256sum | cut -c1-16)"
+          } | tee revs.txt
+          hash=$(sha256sum revs.txt | cut -c1-24)
+          # a failed attempt is only retried after 6 hours (or when upstream changes / on force)
+          bucket=$(( $(date +%s) / 21600 ))
+          {
+            echo "ok_key=dux-ok-$hash"
+            echo "failed_key=dux-failed-$hash-$bucket"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Built already?
+        id: built
+        uses: actions/cache/restore@v4
+        with:
+          path: .marker
+          key: ${{ steps.revs.outputs.ok_key }}
+          lookup-only: true
+
+      - name: Failed recently?
+        id: failed
+        uses: actions/cache/restore@v4
+        with:
+          path: .marker
+          key: ${{ steps.revs.outputs.failed_key }}
+          lookup-only: true
+
+      - name: Decide
+        id: decide
+        run: |
+          if [[ "${{ inputs.force }}" == "true" ]]; then
+            go=true; msg="forced"
+          elif [[ "${{ steps.built.outputs.cache-hit }}" == "true" ]]; then
+            go=false; msg="nothing new, this exact set of commits is already built and cached"
+          elif [[ "${{ steps.failed.outputs.cache-hit }}" == "true" ]]; then
+            go=false; msg="the last attempt for these commits failed; retrying later (or run with force)"
+          else
+            go=true; msg="new upstream commits, building"
+          fi
+          echo "go=$go" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Dux suite: $msg"
+            echo '```'
+            cat revs.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Free disk space
+        if: steps.decide.outputs.go == 'true'
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - uses: cachix/install-nix-action@v31
+        if: steps.decide.outputs.go == 'true'
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      # Sets our cache up as a substituter and pushes everything this job builds.
+      - uses: cachix/cachix-action@v16
+        if: steps.decide.outputs.go == 'true'
+        with:
+          name: ${{ vars.CACHIX_CACHE }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Update flake.lock (same as `nh os switch -u`)
+        if: steps.decide.outputs.go == 'true'
+        working-directory: ci/dux
+        run: nix flake update
+
+      - name: Build and cache
+        if: steps.decide.outputs.go == 'true'
+        working-directory: ci/dux
+        run: |
+          set -uo pipefail
+          targets=(dux-shell quickshell dux-greeter dux-search dux-gop dux-files dux-plugins)
+          failed=()
+          for t in "${targets[@]}"; do
+            echo "::group::$t"
+            if ! nix build ".#$t" --no-link --print-build-logs --print-out-paths; then
+              failed+=("$t")
+            fi
+            echo "::endgroup::"
+          done
+          if (( ${#failed[@]} )); then
+            echo "::error::failed targets: ${failed[*]}"
+            exit 1
+          fi
+
+      - name: Remember that this set was built
+        if: success() && steps.decide.outputs.go == 'true'
+        run: date -u > .marker
+      - uses: actions/cache/save@v4
+        if: success() && steps.decide.outputs.go == 'true'
+        with:
+          path: .marker
+          key: ${{ steps.revs.outputs.ok_key }}
+
+      - name: Remember that this set failed
+        if: failure() && steps.decide.outputs.go == 'true'
+        run: date -u > .marker
+      - uses: actions/cache/save@v4
+        if: failure() && steps.decide.outputs.go == 'true'
+        with:
+          path: .marker
+          key: ${{ steps.revs.outputs.failed_key }}
