@@ -4,8 +4,8 @@ Nix packaging for external apps that aren't in nixpkgs (AppImages, upstream `.de
 prebuilt tarballs), plus a couple of NixOS / home-manager modules. Built for
 `x86_64-linux`.
 
-It also hosts a public **[Cachix binary cache](#binary-cache)** with **Lix built from its
-release branch** (ahead of nixpkgs), so you can run a newer Lix without compiling it yourself.
+It also fills two public **[Cachix binary caches](#binary-cache)**, including one with **Lix built
+from its `main` branch** (ahead of nixpkgs), so you can run a newer Lix without compiling it yourself.
 
 A GitHub Action runs every 4 hours, bumps versions and hashes (`scripts/update.sh`,
 `scripts/update-natsumi.sh`), checks the flake and builds every package before pushing.
@@ -33,21 +33,28 @@ Or just try one: `nix run github:MirzaAyBaig12/nix-ext-packages#openidea`
 
 ## Binary cache
 
-`https://nix-ext-packages.cachix.org` is a public cache, filled by GitHub Actions. It exists
-mostly so [Lix](https://lix.systems) can be run from its **release branch** (currently
-`release-2.96`) through the official [lix-module](https://git.lix.systems/lix-project/nixos-module)
-without a ~40 minute local compile after every nixpkgs bump. nixpkgs' Lix usually lags the
-release branch (as of early Nov 2026: nixpkgs ships 2.95.x, the branch is 2.96.x).
+Two public [Cachix](https://cachix.org) caches, both filled by GitHub Actions in this repo:
 
-This is a personal cache, best effort, and not affiliated with the Lix project.
+| Cache | URL | Public key | What's in it |
+| --- | --- | --- | --- |
+| `lix` | `https://lix.cachix.org` | `lix.cachix.org-1:Pnz9vvW0pvlTmUAFmvlx3LHseovdCUMf81z69y6AYAw=` | [Lix](https://lix.systems) built from its **`main` branch** through the official [lix-module](https://git.lix.systems/lix-project/nixos-module), plus the other things its overlay builds (`nix-eval-jobs`, `nix-doc`) |
+| `nix-ext-packages` | `https://nix-ext-packages.cachix.org` | `nix-ext-packages.cachix.org-1:Jg15MvXM0xKhn4pymDYoWfA7t5SdIGUVQeywOe9j9EU=` | `cpak`, `nil` (rebuilt against Lix) and the Dux suite |
+
+**If you only want Lix, you only need the `lix` cache.** It exists so Lix can run ahead of nixpkgs
+(nixpkgs' Lix lags `main` and the release branches) without a ~40 minute local compile after every
+bump.
+
+Lix `main` is a development branch (at the time of writing it is 2.97.0-dev) and moves about
+daily, so expect the occasional breakage. This is a personal cache, best effort, and not
+affiliated with the Lix project.
 
 ### Use the cache
 
 ```nix
 nix.settings = {
-  extra-substituters = [ "https://nix-ext-packages.cachix.org" ];
+  extra-substituters = [ "https://lix.cachix.org" ];
   extra-trusted-public-keys = [
-    "nix-ext-packages.cachix.org-1:Jg15MvXM0xKhn4pymDYoWfA7t5SdIGUVQeywOe9j9EU="
+    "lix.cachix.org-1:Pnz9vvW0pvlTmUAFmvlx3LHseovdCUMf81z69y6AYAw="
   ];
 };
 ```
@@ -57,20 +64,20 @@ the command line (as root, or as a trusted user):
 
 ```sh
 nixos-rebuild switch --flake . \
-  --option extra-substituters https://nix-ext-packages.cachix.org \
-  --option extra-trusted-public-keys "nix-ext-packages.cachix.org-1:Jg15MvXM0xKhn4pymDYoWfA7t5SdIGUVQeywOe9j9EU="
+  --option extra-substituters https://lix.cachix.org \
+  --option extra-trusted-public-keys "lix.cachix.org-1:Pnz9vvW0pvlTmUAFmvlx3LHseovdCUMf81z69y6AYAw="
 ```
 
-### Run Lix from the release branch
+### Run Lix from `main`
 
 ```nix
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-    # Lix source, tracking the release branch (fixes land here before they're tagged).
+    # Lix source, tracking main.
     lix = {
-      url = "https://git.lix.systems/lix-project/lix/archive/refs/heads/release-2.96.tar.gz";
+      url = "https://git.lix.systems/lix-project/lix/archive/refs/heads/main.tar.gz";
       flake = false;
     };
 
@@ -92,40 +99,37 @@ nixos-rebuild switch --flake . \
 }
 ```
 
-### What gets cached
+### What gets cached, and when
 
-| What | Built from | Workflow |
+| What | Cache | Workflow |
 | --- | --- | --- |
-| `lix`, `nix-eval-jobs`, `nix-doc` | Lix `release-2.96` via lix-module's overlay | [`cache-nix-config`](.github/workflows/cache-nix-config.yml) |
-| `nil` | nixpkgs (its tests run against Lix, so it rebuilds with it) | same |
-| `cpak` | [Containerpak/cpak](https://github.com/Containerpak/cpak) `v2` | same |
-| Dux suite: `dux-shell`, `quickshell`, `dux-greeter`, `dux-search`, `dux-gop`, `dux-files`, plugins | [duxlabs-dev](https://github.com/duxlabs-dev) `master` branches | [`cache-dux`](.github/workflows/cache-dux.yml) |
+| `lix`, `nix-eval-jobs`, `nix-doc` (Lix `main` via lix-module's overlay) | `lix` | [`cache-lix`](.github/workflows/cache-lix.yml) |
+| `cpak` ([Containerpak/cpak](https://github.com/Containerpak/cpak) `v2`), `nil` | `nix-ext-packages` | [`cache-misc`](.github/workflows/cache-misc.yml) |
+| Dux suite: `dux-shell`, `quickshell`, `dux-greeter`, `dux-search`, `dux-gop`, `dux-files`, plugins ([duxlabs-dev](https://github.com/duxlabs-dev) `master` branches) | `nix-ext-packages` | [`cache-dux`](.github/workflows/cache-dux.yml) |
 
-Both workflows only do real work when upstream has new commits. Every 15 to 30 minutes a cheap
-check (a few `git ls-remote` calls, no Nix) looks at the commits that feed the build (nixpkgs
-`nixos-unstable`, the Lix branch, lix-module, cpak, the Dux repos). If that exact set was
-already built the run ends within seconds, otherwise it builds and pushes. The revisions each run
-used are in its job summary. A failed build is retried at most every 6 hours (or when upstream
-changes), and you can force one from the Actions tab.
+The workflows only do real work when upstream has new commits. Every 15 minutes a cheap check
+(a few `git ls-remote` calls, no Nix) looks at the commits that feed the build: Lix `main`, plus
+lix-module and nixpkgs `nixos-unstable`, because those change the derivation (and the store path)
+even when Lix itself didn't move. If that exact set was already built the run ends within
+seconds, otherwise it builds and pushes. The revisions each run used are in its job summary. A
+failed build is retried at most every 6 hours (or when upstream changes), and you can force one
+from the Actions tab. `nil` is only built once the matching Lix is in the `lix` cache, since its
+tests run against Lix.
 
 ### Will it hit for me?
 
-Store paths depend on the exact nixpkgs revision and Lix commit, and the cache is built against
-the latest `nixos-unstable`. So:
+Store paths depend on the exact nixpkgs revision and Lix commit, and the caches are built against
+the latest `nixos-unstable` and Lix `main`. So:
 
-- Follow `nixos-unstable` and update shortly after a green run. If nixpkgs moved in between, you
-  compile once and the next run covers it.
+- Follow `nixos-unstable` and update shortly after a green run. If nixpkgs or Lix `main` moved in
+  between, you compile once and the next run covers it.
 - Your own overlays that change `stdenv` or Lix's dependencies will miss.
 - Check before you switch (the path is whatever your config evaluates):
 
   ```sh
-  nix path-info --store https://nix-ext-packages.cachix.org \
+  nix path-info --store https://lix.cachix.org \
     "$(nix eval --raw .#nixosConfigurations.myhost.pkgs.lix.outPath)"
   ```
-
-The cache follows `release-2.96`. When Lix moves to the next release branch, the workflow's
-`LIX_BRANCH` is bumped, so use the same branch name as the one in
-[`cache-nix-config.yml`](.github/workflows/cache-nix-config.yml).
 
 ## Packages
 

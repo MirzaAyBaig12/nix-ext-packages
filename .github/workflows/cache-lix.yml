@@ -1,26 +1,28 @@
-name: Cache nix-config builds
+name: Cache Lix
 
-# Builds the things from MirzaAyBaig12/nix-config that no public binary cache has
-# (Lix from the release-2.96 branch via lix-module, nil, nix-eval-jobs/nix-doc from the
-# lix-module overlay, cpak) and pushes them to Cachix, so `nh os switch` downloads them
-# instead of compiling Lix for ~40 minutes.
+# Builds Lix from its `main` branch (through lix-module's overlay) and pushes it to the public
+# lix.cachix.org cache, so `nh os switch` downloads Lix instead of compiling it for ~40 minutes.
+# Also builds the other things lix-module's overlay produces: nix-eval-jobs and nix-doc.
 #
-# It only does real work when something is new: every half hour a cheap check (no Nix, a few
-# `git ls-remote` calls) looks at the upstream commits that feed these builds (nixpkgs, the Lix
-# branch, lix-module, cpak). If that exact set was already built, the run ends right there.
+# It only does real work when something is new: every 15 minutes a cheap check (no Nix, a few
+# `git ls-remote` calls) looks for new commits on Lix `main`. nixpkgs and lix-module are part of
+# the check too, because they change the derivation (and so the store path) even when Lix itself
+# didn't move; without them the cache would miss for anyone who just bumped nixpkgs. If that exact
+# set was already built the run ends right there.
 #
-# The targets are taken from the real nixosConfigurations.Axiom, so the derivations (and
-# therefore the store paths) are exactly the ones the laptop asks for. The lock is refreshed
-# first (like `nh os switch -u`); the revisions used are listed in each run's summary.
+# The targets are taken from the real nixosConfigurations.Axiom in MirzaAyBaig12/nix-config, so
+# the derivations are exactly the ones the laptop asks for. The lock is refreshed first (like
+# `nh os switch -u`); the revisions used are listed in each run's summary.
 #
-# Needs: repo secret CACHIX_AUTH_TOKEN and repo variable CACHIX_CACHE (the cache name).
+# Needs: repo secret CACHIX_AUTH_TOKEN (a token that can push to the `lix` cache). If there is a
+# CACHIX_AUTH_TOKEN_LIX secret it is used instead.
 
 on:
   schedule:
-    - cron: "11,41 * * * *"
+    - cron: "2,17,32,47 * * * *"
   push:
     paths:
-      - ".github/workflows/cache-nix-config.yml"
+      - ".github/workflows/cache-lix.yml"
   workflow_dispatch:
     inputs:
       force:
@@ -31,10 +33,11 @@ on:
 env:
   # Lix branch to build; forced onto nix-config's `lix` input below, so the CI cache
   # doesn't depend on what branch/tag the pushed nix-config happens to point at.
-  LIX_BRANCH: release-2.96
+  LIX_BRANCH: main
+  CACHIX_CACHE: lix
 
 concurrency:
-  group: cache-nix-config
+  group: cache-lix
   cancel-in-progress: false
 
 permissions:
@@ -47,7 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Look for new upstream commits
+      - name: Look for new commits
         id: revs
         run: |
           set -euo pipefail
@@ -58,18 +61,17 @@ jobs:
             echo "$out"
           }
           {
-            echo "nixpkgs $(rev https://github.com/NixOS/nixpkgs refs/heads/nixos-unstable)"
             echo "lix ($LIX_BRANCH) $(rev https://git.lix.systems/lix-project/lix "refs/heads/$LIX_BRANCH")"
             echo "lix-module $(rev https://git.lix.systems/lix-project/nixos-module refs/heads/main)"
-            echo "cpak $(rev https://github.com/Containerpak/cpak refs/heads/v2)"
-            echo "workflow $(sha256sum .github/workflows/cache-nix-config.yml | cut -c1-16)"
+            echo "nixpkgs $(rev https://github.com/NixOS/nixpkgs refs/heads/nixos-unstable)"
+            echo "workflow $(sha256sum .github/workflows/cache-lix.yml | cut -c1-16)"
           } | tee revs.txt
           hash=$(sha256sum revs.txt | cut -c1-24)
           # a failed attempt is only retried after 6 hours (or when upstream changes / on force)
           bucket=$(( $(date +%s) / 21600 ))
           {
-            echo "ok_key=lix-ok-$hash"
-            echo "failed_key=lix-failed-$hash-$bucket"
+            echo "ok_key=lixmain-ok-$hash"
+            echo "failed_key=lixmain-failed-$hash-$bucket"
           } >> "$GITHUB_OUTPUT"
 
       - name: Built already?
@@ -98,11 +100,11 @@ jobs:
           elif [[ "${{ steps.failed.outputs.cache-hit }}" == "true" ]]; then
             go=false; msg="the last attempt for these commits failed; retrying later (or run with force)"
           else
-            go=true; msg="new upstream commits, building"
+            go=true; msg="new commits, building"
           fi
           echo "go=$go" >> "$GITHUB_OUTPUT"
           {
-            echo "### Lix, nil, cpak: $msg"
+            echo "### Lix: $msg"
             echo '```'
             cat revs.txt
             echo '```'
@@ -129,15 +131,23 @@ jobs:
             extra-substituters = https://cache.lix.systems
             extra-trusted-public-keys = cache.lix.systems:aBnZUw8zA7H35Cz2RyKFVs3H4PlGTLawyY5KRbvJR8o=
 
-      # Sets our cache up as a substituter (so unchanged paths are just downloaded) and
+      # Sets the lix cache up as a substituter (so unchanged paths are just downloaded) and
       # pushes everything this job builds.
       - uses: cachix/cachix-action@v16
         if: steps.decide.outputs.go == 'true'
         with:
-          name: ${{ vars.CACHIX_CACHE }}
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          name: ${{ env.CACHIX_CACHE }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN_LIX || secrets.CACHIX_AUTH_TOKEN }}
 
-      - name: Point the lix input at the release branch
+      # Fail in seconds, not after a 40 minute Lix build, if the token can't push to this cache.
+      - name: Check that we can push to the cache
+        if: steps.decide.outputs.go == 'true'
+        run: |
+          set -euo pipefail
+          expr="builtins.toFile \"cachix-access-check-$GITHUB_RUN_ID\" \"$GITHUB_RUN_ID\""
+          nix build --impure --no-link --print-out-paths --expr "$expr" | cachix push "$CACHIX_CACHE"
+
+      - name: Point the lix input at the branch
         if: steps.decide.outputs.go == 'true'
         working-directory: nix-config
         run: |
@@ -157,7 +167,7 @@ jobs:
             echo "### Inputs built"
             nix flake metadata --json | jq -r '
               .locks.nodes as $n
-              | ["nixpkgs","lix","lix-module","cpak"][]
+              | ["nixpkgs","lix","lix-module"][]
               | . as $k
               | "- **\($k)**: `\($n[$k].locked.rev // $n[$k].locked.narHash)`"'
           } >> "$GITHUB_STEP_SUMMARY"
@@ -187,17 +197,15 @@ jobs:
           set -uo pipefail
           host=Axiom
           targets=(
-            pkgs.lix                        # Lix 2.96 branch, built by lix-module's overlay
-            pkgs.nix-eval-jobs              # lix-module overlay (built from Lix's subproject)
-            pkgs.nix-doc                    # lix-module overlay (withPlugin = false)
-            pkgs.nil                        # nil language server (tests run against Lix)
-            config.services.cpak.package    # cpak, from its own flake
+            pkgs.lix                # Lix, built by lix-module's overlay
+            pkgs.nix-eval-jobs      # lix-module overlay (built from Lix's subproject)
+            pkgs.nix-doc            # lix-module overlay (withPlugin = false)
           )
           failed=()
           lix_ok=true
           for t in "${targets[@]}"; do
-            # nix-eval-jobs and nil build against Lix; if Lix itself failed, don't rebuild it for them
-            if [[ "$lix_ok" == false && "$t" =~ ^pkgs\.(nix-eval-jobs|nil)$ ]]; then
+            # nix-eval-jobs builds against Lix; if Lix itself failed, don't rebuild it for that
+            if [[ "$lix_ok" == false && "$t" == pkgs.nix-eval-jobs ]]; then
               echo "::warning::skipping $t (needs Lix, which failed)"
               failed+=("$t")
               continue
