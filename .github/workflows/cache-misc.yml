@@ -1,25 +1,17 @@
-name: Cache cpak and nil
+name: Cache cpak
 
-# Builds the rest of the nix-config things that no public binary cache has (cpak and nil) and
-# pushes them to the nix-ext-packages cache. Lix itself is handled by cache-lix.yml and lives in
-# lix.cachix.org.
-#
-# nil's tests run against Lix, so nil is only built once that exact Lix is already in the lix
-# cache (this workflow never compiles Lix itself). It runs again right after "Cache Lix" finishes,
-# so nil follows a new Lix build within minutes.
+# Builds cpak from nix-config and pushes it to the nix-ext-packages cache. Lix and nil are built
+# together by cache-lix.yml and pushed to lix.cachix.org.
 #
 # Like the other cache workflows it only does real work when something is new: every 15 minutes a
 # cheap check (no Nix, a few `git ls-remote` calls) looks at the commits that feed these builds
-# (Lix main, lix-module, nixpkgs, cpak). If that exact set was already built the run ends there.
+# (nixpkgs and cpak). If that exact set was already built the run ends there.
 #
 # Needs: repo secret CACHIX_AUTH_TOKEN and repo variable CACHIX_CACHE (the nix-ext-packages cache).
 
 on:
   schedule:
     - cron: "8,23,38,53 * * * *"
-  workflow_run:
-    workflows: ["Cache Lix"]
-    types: [completed]
   push:
     paths:
       - ".github/workflows/cache-misc.yml"
@@ -29,10 +21,6 @@ on:
         description: "Build even if this exact set of upstream commits was already built"
         type: boolean
         default: false
-
-env:
-  # must match cache-lix.yml: nil's derivation depends on the exact Lix it is built against
-  LIX_BRANCH: main
 
 concurrency:
   group: cache-misc
@@ -59,8 +47,6 @@ jobs:
             echo "$out"
           }
           {
-            echo "lix ($LIX_BRANCH) $(rev https://git.lix.systems/lix-project/lix "refs/heads/$LIX_BRANCH")"
-            echo "lix-module $(rev https://git.lix.systems/lix-project/nixos-module refs/heads/main)"
             echo "nixpkgs $(rev https://github.com/NixOS/nixpkgs refs/heads/nixos-unstable)"
             echo "cpak $(rev https://github.com/Containerpak/cpak refs/heads/v2)"
             echo "workflow $(sha256sum .github/workflows/cache-misc.yml | cut -c1-16)"
@@ -103,7 +89,7 @@ jobs:
           fi
           echo "go=$go" >> "$GITHUB_OUTPUT"
           {
-            echo "### cpak and nil: $msg"
+            echo "### cpak: $msg"
             echo '```'
             cat revs.txt
             echo '```'
@@ -115,15 +101,14 @@ jobs:
           repository: MirzaAyBaig12/nix-config
           path: nix-config
 
-      # The lix cache is a substituter here so nil can use the Lix that cache-lix.yml pushed.
       - uses: cachix/install-nix-action@v31
         if: steps.decide.outputs.go == 'true'
         with:
           nix_path: nixpkgs=channel:nixos-unstable
           extra_nix_config: |
             experimental-features = nix-command flakes
-            extra-substituters = https://lix.cachix.org https://cache.lix.systems
-            extra-trusted-public-keys = lix.cachix.org-1:Pnz9vvW0pvlTmUAFmvlx3LHseovdCUMf81z69y6AYAw= cache.lix.systems:aBnZUw8zA7H35Cz2RyKFVs3H4PlGTLawyY5KRbvJR8o=
+            extra-substituters = https://cache.lix.systems
+            extra-trusted-public-keys = cache.lix.systems:aBnZUw8zA7H35Cz2RyKFVs3H4PlGTLawyY5KRbvJR8o=
 
       # Sets the nix-ext-packages cache up as a substituter and pushes everything this job builds.
       - uses: cachix/cachix-action@v16
@@ -131,13 +116,6 @@ jobs:
         with:
           name: ${{ vars.CACHIX_CACHE }}
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-
-      - name: Point the lix input at the branch
-        if: steps.decide.outputs.go == 'true'
-        working-directory: nix-config
-        run: |
-          sed -i -E 's|(lix-project/lix/archive/)[^"]+\.tar\.gz|\1refs/heads/${{ env.LIX_BRANCH }}.tar.gz|' flake.nix
-          grep -n 'lix-project/lix/archive' flake.nix
 
       - name: Update flake.lock (same as `nh os switch -u`)
         if: steps.decide.outputs.go == 'true'
@@ -152,7 +130,7 @@ jobs:
             echo "### Inputs built"
             nix flake metadata --json | jq -r '
               .locks.nodes as $n
-              | ["nixpkgs","lix","lix-module","cpak"][]
+              | ["nixpkgs","cpak"][]
               | . as $k
               | "- **\($k)**: `\($n[$k].locked.rev // $n[$k].locked.narHash)`"'
           } >> "$GITHUB_STEP_SUMMARY"
@@ -165,40 +143,22 @@ jobs:
           set -uo pipefail
           host=Axiom
           failed=()
-          deferred=false
-
           echo "::group::cpak"
           if ! nix build ".#nixosConfigurations.$host.config.services.cpak.package" --no-link --print-build-logs --print-out-paths; then
             failed+=(cpak)
           fi
           echo "::endgroup::"
 
-          # nil's tests run against Lix. Only build it once that Lix is already in the lix cache;
-          # compiling Lix here would just duplicate cache-lix.yml.
-          echo "::group::nil"
-          lix_out=$(nix eval --raw ".#nixosConfigurations.$host.pkgs.lix.outPath")
-          if nix path-info --store https://lix.cachix.org "$lix_out" > /dev/null 2>&1; then
-            if ! nix build ".#nixosConfigurations.$host.pkgs.nil" --no-link --print-build-logs --print-out-paths; then
-              failed+=(nil)
-            fi
-          else
-            echo "::warning::Lix $lix_out is not in lix.cachix.org yet; deferring nil (retries after Cache Lix finishes)"
-            deferred=true
-          fi
-          echo "::endgroup::"
-
-          echo "deferred=$deferred" >> "$GITHUB_OUTPUT"
           if (( ${#failed[@]} )); then
             echo "::error::failed targets: ${failed[*]}"
             exit 1
           fi
 
-      # Not remembered when nil was deferred, so the next run (after Cache Lix) builds it.
       - name: Remember that this set was built
-        if: success() && steps.decide.outputs.go == 'true' && steps.build.outputs.deferred != 'true'
+        if: success() && steps.decide.outputs.go == 'true'
         run: date -u > .marker
       - uses: actions/cache/save@v4
-        if: success() && steps.decide.outputs.go == 'true' && steps.build.outputs.deferred != 'true'
+        if: success() && steps.decide.outputs.go == 'true'
         with:
           path: .marker
           key: ${{ steps.revs.outputs.ok_key }}
