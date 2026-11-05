@@ -1,4 +1,4 @@
-name: Cache Lix 2.96
+name: Cache Lix
 
 # Builds Lix from its `release-2.96` branch (through lix-module's overlay) and pushes it to the public
 # lix.cachix.org cache, so `nh os switch` downloads Lix instead of compiling it for ~40 minutes.
