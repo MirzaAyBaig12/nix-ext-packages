@@ -154,6 +154,19 @@ jobs:
           sed -i -E 's|(lix-project/lix/archive/)[^"]+\.tar\.gz|\1refs/heads/${{ env.LIX_BRANCH }}.tar.gz|' flake.nix
           grep -n 'lix-project/lix/archive' flake.nix
 
+      # nix-config has a private input (nix-secrets, git+ssh) that the runner has no key for, and
+      # `nix flake update` would try to fetch it. Nothing built here needs its contents (it's only
+      # the sops file path), so point it at an empty local stub for this run only.
+      - name: Stub the private nix-secrets input
+        if: steps.decide.outputs.go == 'true'
+        working-directory: nix-config
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/ci-nix-secrets"
+          : > "$GITHUB_WORKSPACE/ci-nix-secrets/ssh.yaml"
+          sed -i -E '/nix-secrets = \{/,/\};/ s|url = "[^"]+";|url = "path:'"$GITHUB_WORKSPACE"'/ci-nix-secrets";|' flake.nix
+          grep -n -A3 'nix-secrets = {' flake.nix
+
       - name: Update flake.lock (same as `nh os switch -u`)
         if: steps.decide.outputs.go == 'true'
         working-directory: nix-config
