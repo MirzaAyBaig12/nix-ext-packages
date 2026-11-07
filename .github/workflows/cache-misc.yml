@@ -6,8 +6,9 @@ name: Cache cpak
 # Like the other cache workflows it only does real work when something is new: every 15 minutes a
 # cheap check (no Nix, a few `git ls-remote` calls) looks at the commits that feed these builds
 # (nix-config, nixpkgs and cpak). If that exact set was already built the run ends there.
-# Builds use nix-config's committed flake.lock (updating only the private nix-secrets stub), so
-# Serein's derivation is the same locked package referenced by the system configuration.
+# Builds use the locked cpak and Serein flake package outputs directly; the NixOS system is never
+# evaluated. The committed nix-config/flake.lock is authoritative (only the private nix-secrets
+# stub is updated), and a changed nix-config revision triggers a rebuild on the next scheduled run.
 #
 # Needs: repo secret CACHIX_AUTH_TOKEN and repo variable CACHIX_CACHE (the nix-ext-packages cache).
 
@@ -167,16 +168,14 @@ jobs:
         working-directory: nix-config
         run: |
           set -uo pipefail
-          host=Axiom
           failed=()
           echo "::group::cpak"
-          if ! nix build ".#nixosConfigurations.$host.config.services.cpak.package" --no-link --print-build-logs --print-out-paths; then
+          if ! nix build ".#packages.x86_64-linux.cpak" --no-link --print-build-logs --print-out-paths; then
             failed+=(cpak)
           fi
           echo "::endgroup::"
 
-          # This output points to the same locked input package used by Axiom, without evaluating
-          # the full NixOS configuration (which is not needed to cache this derivation).
+          # Build the locked input package directly; never evaluate the NixOS configuration.
           echo "::group::Serein"
           if ! nix build ".#packages.x86_64-linux.serein" --no-link --print-build-logs --print-out-paths; then
             failed+=(serein)
