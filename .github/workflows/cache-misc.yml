@@ -1,11 +1,13 @@
 name: Cache cpak
 
-# Builds cpak from nix-config and pushes it to the nix-ext-packages cache. Lix and nil are built
-# together by cache-lix.yml and pushed to lix.cachix.org.
+# Builds cpak and Serein from nix-config and pushes them to the nix-ext-packages cache. Lix and
+# nil are built together by cache-lix.yml and pushed to lix.cachix.org.
 #
 # Like the other cache workflows it only does real work when something is new: every 15 minutes a
 # cheap check (no Nix, a few `git ls-remote` calls) looks at the commits that feed these builds
-# (nixpkgs and cpak). If that exact set was already built the run ends there.
+# (nix-config, nixpkgs and cpak). If that exact set was already built the run ends there.
+# Builds use nix-config's committed flake.lock (updating only the private nix-secrets stub), so
+# Serein's derivation is the same locked package referenced by the system configuration.
 #
 # Needs: repo secret CACHIX_AUTH_TOKEN and repo variable CACHIX_CACHE (the nix-ext-packages cache).
 
@@ -50,6 +52,7 @@ jobs:
             echo "$out"
           }
           {
+            echo "nix-config $(rev https://github.com/MirzaAyBaig12/nix-config refs/heads/main)"
             echo "nixpkgs $(rev https://github.com/NixOS/nixpkgs refs/heads/nixos-unstable)"
             echo "cpak $(rev https://github.com/Containerpak/cpak refs/heads/v2)"
             echo "workflow $(sha256sum .github/workflows/cache-misc.yml | cut -c1-16)"
@@ -140,10 +143,10 @@ jobs:
           sed -i -E '/nix-secrets = \{/,/\};/ s|url = "[^"]+";|url = "path:'"$GITHUB_WORKSPACE"'/ci-nix-secrets";|' flake.nix
           grep -n -A3 'nix-secrets = {' flake.nix
 
-      - name: Update flake.lock (same as `nh os switch -u`)
+      - name: Update only the private nix-secrets lock entry
         if: steps.decide.outputs.go == 'true'
         working-directory: nix-config
-        run: nix flake update
+        run: nix flake update nix-secrets
 
       - name: Record input revisions
         if: steps.decide.outputs.go == 'true'
@@ -153,7 +156,7 @@ jobs:
             echo "### Inputs built"
             nix flake metadata --json | jq -r '
               .locks.nodes as $n
-              | ["nixpkgs","cpak"][]
+              | ["nixpkgs","cpak","serein"][]
               | . as $k
               | "- **\($k)**: `\($n[$k].locked.rev // $n[$k].locked.narHash)`"'
           } >> "$GITHUB_STEP_SUMMARY"
@@ -169,6 +172,21 @@ jobs:
           echo "::group::cpak"
           if ! nix build ".#nixosConfigurations.$host.config.services.cpak.package" --no-link --print-build-logs --print-out-paths; then
             failed+=(cpak)
+          fi
+          echo "::endgroup::"
+
+          # Resolve Serein from the actual Axiom system package list, then build that derivation
+          # directly. This guarantees the cached store path is the one selected by programs.nix.
+          echo "::group::Serein"
+          serein_drv=$(nix eval --raw ".#nixosConfigurations.$host.config.environment.systemPackages" --apply '
+            packages:
+              let matches = builtins.filter (p: builtins.match "[Ss]erein.*" (p.name or "") != null) packages;
+              in if builtins.length matches == 1
+                 then (builtins.head matches).drvPath
+                 else throw "expected exactly one Serein package in Axiom systemPackages, found ${toString (builtins.length matches)}"
+          ')
+          if ! nix build "$serein_drv" --no-link --print-build-logs --print-out-paths; then
+            failed+=(serein)
           fi
           echo "::endgroup::"
 
