@@ -175,17 +175,10 @@ jobs:
           fi
           echo "::endgroup::"
 
-          # Resolve Serein from the actual Axiom system package list, then build that derivation
-          # directly. This guarantees the cached store path is the one selected by programs.nix.
+          # This output points to the same locked input package used by Axiom, without evaluating
+          # the full NixOS configuration (which is not needed to cache this derivation).
           echo "::group::Serein"
-          serein_drv=$(nix eval --raw ".#nixosConfigurations.$host.config.environment.systemPackages" --apply '
-            packages:
-              let matches = builtins.filter (p: builtins.match "[Ss]erein.*" (p.name or "") != null) packages;
-              in if builtins.length matches == 1
-                 then (builtins.head matches).drvPath
-                 else throw "expected exactly one Serein package in Axiom systemPackages, found ${toString (builtins.length matches)}"
-          ')
-          if ! nix build "$serein_drv" --no-link --print-build-logs --print-out-paths; then
+          if ! nix build ".#packages.x86_64-linux.serein" --no-link --print-build-logs --print-out-paths; then
             failed+=(serein)
           fi
           echo "::endgroup::"
