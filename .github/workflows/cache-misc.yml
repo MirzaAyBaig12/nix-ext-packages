@@ -6,10 +6,10 @@ name: Cache cpak
 # Like the other cache workflows it only does real work when something is new: every 15 minutes a
 # cheap check (no Nix, a few `git ls-remote` calls) looks at the commits that feed these builds
 # (nix-config, nixpkgs, cpak, Serein and Yapfast). If that exact set was already built the run ends there.
-# It builds the committed lock entries first, then updates only cpak, Serein and Yapfast to their latest
-# upstream commits and builds those too. This keeps the system's exact paths cached while also
-# preparing new upstream releases. The NixOS system is never evaluated; nix-config changes are
-# noticed on the next scheduled run.
+# It builds the exact source revisions and dependencies pinned in nix-config/flake.lock, then
+# builds the latest cpak, Serein and Yapfast commits too. Each package flake is built directly;
+# the nix-config outputs and NixOS system are never evaluated. nix-config changes are noticed on
+# the next scheduled run.
 #
 # Needs: repo secret CACHIX_AUTH_TOKEN and repo variable CACHIX_CACHE (the nix-ext-packages cache).
 
@@ -53,14 +53,26 @@ jobs:
             [[ -n "$out" ]] || { echo "::error::no revision found for $1 $2"; exit 1; }
             echo "$out"
           }
+          nix_config_rev=$(rev https://github.com/MirzaAyBaig12/nix-config refs/heads/main)
+          nixpkgs_rev=$(rev https://github.com/NixOS/nixpkgs refs/heads/nixos-unstable)
+          cpak_rev=$(rev https://github.com/Containerpak/cpak refs/heads/v2)
+          serein_rev=$(rev https://github.com/ViceVerse-cz/Serein refs/heads/main)
+          yapfast_rev=$(rev https://github.com/yapfast/yapfast refs/heads/main)
           {
-            echo "nix-config $(rev https://github.com/MirzaAyBaig12/nix-config refs/heads/main)"
-            echo "nixpkgs $(rev https://github.com/NixOS/nixpkgs refs/heads/nixos-unstable)"
-            echo "cpak $(rev https://github.com/Containerpak/cpak refs/heads/v2)"
-            echo "serein $(rev https://github.com/ViceVerse-cz/Serein refs/heads/main)"
-            echo "yapfast $(rev https://github.com/yapfast/yapfast refs/heads/main)"
+            echo "nix-config $nix_config_rev"
+            echo "nixpkgs $nixpkgs_rev"
+            echo "cpak $cpak_rev"
+            echo "serein $serein_rev"
+            echo "yapfast $yapfast_rev"
             echo "workflow $(sha256sum .github/workflows/cache-misc.yml | cut -c1-16)"
           } | tee revs.txt
+          {
+            echo "nix_config_rev=$nix_config_rev"
+            echo "nixpkgs_rev=$nixpkgs_rev"
+            echo "cpak_rev=$cpak_rev"
+            echo "serein_rev=$serein_rev"
+            echo "yapfast_rev=$yapfast_rev"
+          } >> "$GITHUB_OUTPUT"
           hash=$(sha256sum revs.txt | cut -c1-24)
           # a failed attempt is only retried after 6 hours (or when upstream changes / on force)
           bucket=$(( $(date +%s) / 21600 ))
@@ -135,34 +147,13 @@ jobs:
           expr="builtins.toFile \"cachix-access-check-$GITHUB_RUN_ID\" \"$GITHUB_RUN_ID\""
           nix build --impure --no-link --print-out-paths --expr "$expr" | cachix push "$CACHIX_CACHE"
 
-      # nix-config has a private input (nix-secrets, git+ssh) that the runner has no key for,
-      # and `nix flake update` would try to fetch it. The cpak build does not need its contents.
-      - name: Stub the private nix-secrets input
-        if: steps.decide.outputs.go == 'true'
-        working-directory: nix-config
-        run: |
-          set -euo pipefail
-          mkdir -p "$GITHUB_WORKSPACE/ci-nix-secrets"
-          : > "$GITHUB_WORKSPACE/ci-nix-secrets/ssh.yaml"
-          sed -i -E '/nix-secrets = \{/,/\};/ s|url = "[^"]+";|url = "path:'"$GITHUB_WORKSPACE"'/ci-nix-secrets";|' flake.nix
-          grep -n -A3 'nix-secrets = {' flake.nix
-
-      - name: Update only the private nix-secrets lock entry
-        if: steps.decide.outputs.go == 'true'
-        working-directory: nix-config
-        run: nix flake update nix-secrets
-
       - name: Record locked input revisions
         if: steps.decide.outputs.go == 'true'
         working-directory: nix-config
         run: |
           {
-            echo "### Inputs built"
-            nix flake metadata --json | jq -r '
-              .locks.nodes as $n
-              | ["nixpkgs","cpak","serein","yapfast"][]
-              | . as $k
-              | "- **\($k)**: `\($n[$k].locked.rev // $n[$k].locked.narHash)`"'
+            echo "### Locked app inputs"
+            jq -r '.nodes as $n | ["cpak","serein","yapfast"][] | . as $k | "- **\($k)**: `\($n[$k].locked.rev)`"' flake.lock
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build and cache
@@ -170,64 +161,51 @@ jobs:
         if: steps.decide.outputs.go == 'true'
         working-directory: nix-config
         run: |
-          set -uo pipefail
-          failed=()
-          echo "::group::cpak"
-          if ! nix build ".#packages.x86_64-linux.cpak" --no-link --print-build-logs --print-out-paths; then
-            failed+=(cpak)
-          fi
+          set -euo pipefail
+
+          cpak_rev=$(jq -r '.nodes.cpak.locked.rev' flake.lock)
+          cpak_nixpkgs=$(jq -r '.nodes[.nodes.cpak.inputs.nixpkgs].locked.rev' flake.lock)
+          serein_rev=$(jq -r '.nodes.serein.locked.rev' flake.lock)
+          serein_nixpkgs=$(jq -r '.nodes[.nodes.serein.inputs.nixpkgs].locked.rev' flake.lock)
+          serein_flake_parts=$(jq -r '.nodes[.nodes.serein.inputs["flake-parts"]].locked.rev' flake.lock)
+          yapfast_rev=$(jq -r '.nodes.yapfast.locked.rev' flake.lock)
+          yapfast_nixpkgs=$(jq -r '.nodes[.nodes.yapfast.inputs.nixpkgs].locked.rev' flake.lock)
+          yapfast_rust_overlay=$(jq -r '.nodes[.nodes.yapfast.inputs["rust-overlay"]].locked.rev' flake.lock)
+
+          echo "::group::Locked cpak"
+          nix build "github:Containerpak/cpak/$cpak_rev#packages.x86_64-linux.cpak" \
+            --override-input nixpkgs "github:NixOS/nixpkgs/$cpak_nixpkgs" \
+            --no-link --print-build-logs --print-out-paths
           echo "::endgroup::"
 
-          # Build the locked input package directly; never evaluate the NixOS configuration.
-          echo "::group::Serein"
-          if ! nix build ".#packages.x86_64-linux.serein" --no-link --print-build-logs --print-out-paths; then
-            failed+=(serein)
-          fi
+          echo "::group::Locked Serein"
+          nix build "github:ViceVerse-cz/Serein/$serein_rev#packages.x86_64-linux.default" \
+            --override-input nixpkgs "github:NixOS/nixpkgs/$serein_nixpkgs" \
+            --override-input flake-parts "github:hercules-ci/flake-parts/$serein_flake_parts" \
+            --no-link --print-build-logs --print-out-paths
           echo "::endgroup::"
 
-          echo "::group::Yapfast"
-          if ! nix build ".#packages.x86_64-linux.yapfast" --no-link --print-build-logs --print-out-paths; then
-            failed+=(yapfast)
-          fi
-          echo "::endgroup::"
-
-          # Refresh only these package inputs after caching the committed lock entries. This
-          # prepares the newest upstream commits even before nix-config's lockfile is updated.
-          echo "::group::Update upstream package inputs"
-          if nix flake update cpak serein yapfast; then
-            nix flake metadata --json | jq -r '
-              .locks.nodes as $n
-              | ["cpak","serein","yapfast"][]
-              | . as $k
-              | "- **latest \($k)**: `\($n[$k].locked.rev // $n[$k].locked.narHash)`"' \
-              >> "$GITHUB_STEP_SUMMARY"
-          else
-            failed+=("updating cpak/serein/yapfast inputs")
-          fi
+          echo "::group::Locked Yapfast"
+          nix build "github:yapfast/yapfast/$yapfast_rev#packages.x86_64-linux.yapfast" \
+            --override-input nixpkgs "github:NixOS/nixpkgs/$yapfast_nixpkgs" \
+            --override-input rust-overlay "github:oxalica/rust-overlay/$yapfast_rust_overlay" \
+            --no-link --print-build-logs --print-out-paths
           echo "::endgroup::"
 
           echo "::group::Latest cpak"
-          if ! nix build ".#packages.x86_64-linux.cpak" --no-link --print-build-logs --print-out-paths; then
-            failed+=(cpak-latest)
-          fi
+          nix build "github:Containerpak/cpak/${{ steps.revs.outputs.cpak_rev }}#packages.x86_64-linux.cpak" \
+            --no-link --print-build-logs --print-out-paths
           echo "::endgroup::"
 
           echo "::group::Latest Serein"
-          if ! nix build ".#packages.x86_64-linux.serein" --no-link --print-build-logs --print-out-paths; then
-            failed+=(serein-latest)
-          fi
+          nix build "github:ViceVerse-cz/Serein/${{ steps.revs.outputs.serein_rev }}#packages.x86_64-linux.default" \
+            --no-link --print-build-logs --print-out-paths
           echo "::endgroup::"
 
           echo "::group::Latest Yapfast"
-          if ! nix build ".#packages.x86_64-linux.yapfast" --no-link --print-build-logs --print-out-paths; then
-            failed+=(yapfast-latest)
-          fi
+          nix build "github:yapfast/yapfast/${{ steps.revs.outputs.yapfast_rev }}#packages.x86_64-linux.yapfast" \
+            --no-link --print-build-logs --print-out-paths
           echo "::endgroup::"
-
-          if (( ${#failed[@]} )); then
-            echo "::error::failed targets: ${failed[*]}"
-            exit 1
-          fi
 
       - name: Remember that this set was built
         if: success() && steps.decide.outputs.go == 'true'
