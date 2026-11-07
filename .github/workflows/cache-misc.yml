@@ -4,12 +4,9 @@ name: Cache cpak
 # nil are built together by cache-lix.yml and pushed to lix.cachix.org.
 #
 # Like the other cache workflows it only does real work when something is new: every 15 minutes a
-# cheap check (no Nix, a few `git ls-remote` calls) looks at the commits that feed these builds
-# (nix-config, nixpkgs, cpak, Serein and Yapfast). If that exact set was already built the run ends there.
-# It builds the exact source revisions and dependencies pinned in nix-config/flake.lock, then
-# builds the latest cpak, Serein and Yapfast commits too. Each package flake is built directly;
-# the nix-config outputs and NixOS system are never evaluated. nix-config changes are noticed on
-# the next scheduled run.
+# cheap check (no Nix, a few `git ls-remote` calls) looks at the latest cpak, Serein and Yapfast
+# commits. If that exact set was already built the run ends there. Each package flake is built
+# directly from its latest upstream commit; no nix-config checkout, lockfile, or NixOS system is used.
 #
 # Needs: repo secret CACHIX_AUTH_TOKEN and repo variable CACHIX_CACHE (the nix-ext-packages cache).
 
@@ -53,22 +50,16 @@ jobs:
             [[ -n "$out" ]] || { echo "::error::no revision found for $1 $2"; exit 1; }
             echo "$out"
           }
-          nix_config_rev=$(rev https://github.com/MirzaAyBaig12/nix-config refs/heads/main)
-          nixpkgs_rev=$(rev https://github.com/NixOS/nixpkgs refs/heads/nixos-unstable)
           cpak_rev=$(rev https://github.com/Containerpak/cpak refs/heads/v2)
           serein_rev=$(rev https://github.com/ViceVerse-cz/Serein refs/heads/main)
           yapfast_rev=$(rev https://github.com/yapfast/yapfast refs/heads/main)
           {
-            echo "nix-config $nix_config_rev"
-            echo "nixpkgs $nixpkgs_rev"
             echo "cpak $cpak_rev"
             echo "serein $serein_rev"
             echo "yapfast $yapfast_rev"
             echo "workflow $(sha256sum .github/workflows/cache-misc.yml | cut -c1-16)"
           } | tee revs.txt
           {
-            echo "nix_config_rev=$nix_config_rev"
-            echo "nixpkgs_rev=$nixpkgs_rev"
             echo "cpak_rev=$cpak_rev"
             echo "serein_rev=$serein_rev"
             echo "yapfast_rev=$yapfast_rev"
@@ -117,12 +108,6 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/checkout@v6
-        if: steps.decide.outputs.go == 'true'
-        with:
-          repository: MirzaAyBaig12/nix-config
-          path: nix-config
-
       - uses: cachix/install-nix-action@v31
         if: steps.decide.outputs.go == 'true'
         with:
@@ -147,62 +132,22 @@ jobs:
           expr="builtins.toFile \"cachix-access-check-$GITHUB_RUN_ID\" \"$GITHUB_RUN_ID\""
           nix build --impure --no-link --print-out-paths --expr "$expr" | cachix push "$CACHIX_CACHE"
 
-      - name: Record locked input revisions
-        if: steps.decide.outputs.go == 'true'
-        working-directory: nix-config
-        run: |
-          {
-            echo "### Locked app inputs"
-            jq -r '.nodes as $n | ["cpak","serein","yapfast"][] | . as $k | "- **\($k)**: `\($n[$k].locked.rev)`"' flake.lock
-          } >> "$GITHUB_STEP_SUMMARY"
-
       - name: Build and cache
         id: build
         if: steps.decide.outputs.go == 'true'
-        working-directory: nix-config
         run: |
           set -euo pipefail
-
-          cpak_rev=$(jq -r '.nodes.cpak.locked.rev' flake.lock)
-          cpak_nixpkgs=$(jq -r '.nodes[.nodes.cpak.inputs.nixpkgs].locked.rev' flake.lock)
-          serein_rev=$(jq -r '.nodes.serein.locked.rev' flake.lock)
-          serein_nixpkgs=$(jq -r '.nodes[.nodes.serein.inputs.nixpkgs].locked.rev' flake.lock)
-          serein_flake_parts=$(jq -r '.nodes[.nodes.serein.inputs["flake-parts"]].locked.rev' flake.lock)
-          yapfast_rev=$(jq -r '.nodes.yapfast.locked.rev' flake.lock)
-          yapfast_nixpkgs=$(jq -r '.nodes[.nodes.yapfast.inputs.nixpkgs].locked.rev' flake.lock)
-          yapfast_rust_overlay=$(jq -r '.nodes[.nodes.yapfast.inputs["rust-overlay"]].locked.rev' flake.lock)
-
-          echo "::group::Locked cpak"
-          nix build "github:Containerpak/cpak/$cpak_rev#packages.x86_64-linux.cpak" \
-            --override-input nixpkgs "github:NixOS/nixpkgs/$cpak_nixpkgs" \
-            --no-link --print-build-logs --print-out-paths
-          echo "::endgroup::"
-
-          echo "::group::Locked Serein"
-          nix build "github:ViceVerse-cz/Serein/$serein_rev#packages.x86_64-linux.default" \
-            --override-input nixpkgs "github:NixOS/nixpkgs/$serein_nixpkgs" \
-            --override-input flake-parts "github:hercules-ci/flake-parts/$serein_flake_parts" \
-            --no-link --print-build-logs --print-out-paths
-          echo "::endgroup::"
-
-          echo "::group::Locked Yapfast"
-          nix build "github:yapfast/yapfast/$yapfast_rev#packages.x86_64-linux.yapfast" \
-            --override-input nixpkgs "github:NixOS/nixpkgs/$yapfast_nixpkgs" \
-            --override-input rust-overlay "github:oxalica/rust-overlay/$yapfast_rust_overlay" \
-            --no-link --print-build-logs --print-out-paths
-          echo "::endgroup::"
-
-          echo "::group::Latest cpak"
+          echo "::group::Current cpak"
           nix build "github:Containerpak/cpak/${{ steps.revs.outputs.cpak_rev }}#packages.x86_64-linux.cpak" \
             --no-link --print-build-logs --print-out-paths
           echo "::endgroup::"
 
-          echo "::group::Latest Serein"
+          echo "::group::Current Serein"
           nix build "github:ViceVerse-cz/Serein/${{ steps.revs.outputs.serein_rev }}#packages.x86_64-linux.default" \
             --no-link --print-build-logs --print-out-paths
           echo "::endgroup::"
 
-          echo "::group::Latest Yapfast"
+          echo "::group::Current Yapfast"
           nix build "github:yapfast/yapfast/${{ steps.revs.outputs.yapfast_rev }}#packages.x86_64-linux.yapfast" \
             --no-link --print-build-logs --print-out-paths
           echo "::endgroup::"
