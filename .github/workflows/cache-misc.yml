@@ -1,11 +1,11 @@
 name: Cache cpak
 
-# Builds cpak, Serein and Yapfast from nix-config and pushes them to the nix-ext-packages cache. Lix and
+# Builds cpak and pushes it to the nix-ext-packages cache. Lix and
 # nil are built together by cache-lix.yml and pushed to lix.cachix.org.
 #
 # Like the other cache workflows it only does real work when something is new: every 15 minutes a
-# cheap check (no Nix, a few `git ls-remote` calls) looks at the latest cpak, Serein and Yapfast
-# commits. If that exact set was already built the run ends there. Each package flake is built
+# cheap check (no Nix, a `git ls-remote` call) looks at the latest cpak commit. If that exact revision
+# was already built the run ends there. Its package flake is built
 # directly from its latest upstream commit; no nix-config checkout, lockfile, or NixOS system is used.
 #
 # Needs: repo secret CACHIX_AUTH_TOKEN and repo variable CACHIX_CACHE (the nix-ext-packages cache).
@@ -51,18 +51,12 @@ jobs:
             echo "$out"
           }
           cpak_rev=$(rev https://github.com/Containerpak/cpak refs/heads/v2)
-          serein_rev=$(rev https://github.com/ViceVerse-cz/Serein refs/heads/main)
-          yapfast_rev=$(rev https://github.com/yapfast/yapfast refs/heads/main)
           {
             echo "cpak $cpak_rev"
-            echo "serein $serein_rev"
-            echo "yapfast $yapfast_rev"
             echo "workflow $(sha256sum .github/workflows/cache-misc.yml | cut -c1-16)"
           } | tee revs.txt
           {
             echo "cpak_rev=$cpak_rev"
-            echo "serein_rev=$serein_rev"
-            echo "yapfast_rev=$yapfast_rev"
           } >> "$GITHUB_OUTPUT"
           hash=$(sha256sum revs.txt | cut -c1-24)
           # a failed attempt is only retried after 6 hours (or when upstream changes / on force)
@@ -139,16 +133,6 @@ jobs:
           set -euo pipefail
           echo "::group::Current cpak"
           nix build "github:Containerpak/cpak/${{ steps.revs.outputs.cpak_rev }}#packages.x86_64-linux.cpak" \
-            --no-link --print-build-logs --print-out-paths
-          echo "::endgroup::"
-
-          echo "::group::Current Serein"
-          nix build "github:ViceVerse-cz/Serein/${{ steps.revs.outputs.serein_rev }}#packages.x86_64-linux.default" \
-            --no-link --print-build-logs --print-out-paths
-          echo "::endgroup::"
-
-          echo "::group::Current Yapfast"
-          nix build "github:yapfast/yapfast/${{ steps.revs.outputs.yapfast_rev }}#packages.x86_64-linux.yapfast" \
             --no-link --print-build-logs --print-out-paths
           echo "::endgroup::"
 
