@@ -1,12 +1,12 @@
 name: Cache cpak
 
-# Builds cpak and Serein from nix-config and pushes them to the nix-ext-packages cache. Lix and
+# Builds cpak, Serein and Yapfast from nix-config and pushes them to the nix-ext-packages cache. Lix and
 # nil are built together by cache-lix.yml and pushed to lix.cachix.org.
 #
 # Like the other cache workflows it only does real work when something is new: every 15 minutes a
 # cheap check (no Nix, a few `git ls-remote` calls) looks at the commits that feed these builds
-# (nix-config, nixpkgs, cpak and Serein). If that exact set was already built the run ends there.
-# It builds the committed lock entries first, then updates only cpak and Serein to their latest
+# (nix-config, nixpkgs, cpak, Serein and Yapfast). If that exact set was already built the run ends there.
+# It builds the committed lock entries first, then updates only cpak, Serein and Yapfast to their latest
 # upstream commits and builds those too. This keeps the system's exact paths cached while also
 # preparing new upstream releases. The NixOS system is never evaluated; nix-config changes are
 # noticed on the next scheduled run.
@@ -58,6 +58,7 @@ jobs:
             echo "nixpkgs $(rev https://github.com/NixOS/nixpkgs refs/heads/nixos-unstable)"
             echo "cpak $(rev https://github.com/Containerpak/cpak refs/heads/v2)"
             echo "serein $(rev https://github.com/ViceVerse-cz/Serein refs/heads/main)"
+            echo "yapfast $(rev https://github.com/yapfast/yapfast refs/heads/main)"
             echo "workflow $(sha256sum .github/workflows/cache-misc.yml | cut -c1-16)"
           } | tee revs.txt
           hash=$(sha256sum revs.txt | cut -c1-24)
@@ -159,7 +160,7 @@ jobs:
             echo "### Inputs built"
             nix flake metadata --json | jq -r '
               .locks.nodes as $n
-              | ["nixpkgs","cpak","serein"][]
+              | ["nixpkgs","cpak","serein","yapfast"][]
               | . as $k
               | "- **\($k)**: `\($n[$k].locked.rev // $n[$k].locked.narHash)`"'
           } >> "$GITHUB_STEP_SUMMARY"
@@ -184,18 +185,24 @@ jobs:
           fi
           echo "::endgroup::"
 
+          echo "::group::Yapfast"
+          if ! nix build ".#packages.x86_64-linux.yapfast" --no-link --print-build-logs --print-out-paths; then
+            failed+=(yapfast)
+          fi
+          echo "::endgroup::"
+
           # Refresh only these package inputs after caching the committed lock entries. This
           # prepares the newest upstream commits even before nix-config's lockfile is updated.
           echo "::group::Update upstream package inputs"
-          if nix flake update cpak serein; then
+          if nix flake update cpak serein yapfast; then
             nix flake metadata --json | jq -r '
               .locks.nodes as $n
-              | ["cpak","serein"][]
+              | ["cpak","serein","yapfast"][]
               | . as $k
               | "- **latest \($k)**: `\($n[$k].locked.rev // $n[$k].locked.narHash)`"' \
               >> "$GITHUB_STEP_SUMMARY"
           else
-            failed+=("updating cpak/serein inputs")
+            failed+=("updating cpak/serein/yapfast inputs")
           fi
           echo "::endgroup::"
 
@@ -208,6 +215,12 @@ jobs:
           echo "::group::Latest Serein"
           if ! nix build ".#packages.x86_64-linux.serein" --no-link --print-build-logs --print-out-paths; then
             failed+=(serein-latest)
+          fi
+          echo "::endgroup::"
+
+          echo "::group::Latest Yapfast"
+          if ! nix build ".#packages.x86_64-linux.yapfast" --no-link --print-build-logs --print-out-paths; then
+            failed+=(yapfast-latest)
           fi
           echo "::endgroup::"
 
