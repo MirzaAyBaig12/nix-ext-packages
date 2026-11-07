@@ -138,6 +138,7 @@ the latest `nixos-unstable` and Lix `main`. So:
 | [`3utools`](packages/3utools.nix) | 3uTools, an Apple device (iPhone/iPad) management tool. Unfree. Needs `services.usbmuxd.enable = true` and this package in `services.udev.packages` for device access. | Official `.deb`, run in an FHS env |
 | [`bibata-material-cursor`](packages/bibata-material-cursor.nix) | Bibata Material cursor themes (dark variants), a Material Design 3 take on Bibata. nixpkgs' `bibata-cursors` has no Material variants. | Prebuilt release tarball |
 | [`browser-ext-sync`](packages/browser-ext-sync.nix) | Script that installs Chrome Web Store extensions declaratively for Helium and ungoogled-chromium, which can't install them on their own. Also pins, prunes and installs uBlock Origin (MV2). Used by the `browser-extensions` module. | Shell script (nothing fetched) |
+| [`compas-tools`](packages/compas-tools.nix) | Compás Tools, desktop companion for Compás music players. | AppImage |
 | [`hydra-launcher`](packages/hydra-launcher.nix) | Hydra, an open-source game launcher. | AppImage |
 | [`modrinth`](packages/modrinth.nix) | Modrinth App, a Minecraft launcher and mod manager. | AppImage |
 | [`openidea`](packages/openidea.nix) | OpenIDEA, an open-source IDE inspired by IntelliJ IDEA, rebuilt in Rust (Tauri). Not affiliated with JetBrains, and JetBrains plugins don't work with it. | Official `.deb`, run in an FHS env |

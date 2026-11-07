@@ -32,6 +32,7 @@
     {
       packages.${system} = {
         sklauncher = pkgs.callPackage ./packages/sklauncher.nix { };
+        compas-tools = pkgs.callPackage ./packages/compas-tools.nix { };
         hydra-launcher = pkgs.callPackage ./packages/hydra-launcher.nix { };
         modrinth = pkgs.callPackage ./packages/modrinth.nix { };
         ventoy = pkgs.callPackage ./packages/ventoy.nix { };
