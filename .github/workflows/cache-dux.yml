@@ -1,10 +1,10 @@
 name: Cache Dux suite
 
-# Builds the Dux suite (dux-shell, quickshell, dux-greeter, dux-search, dux-gop, dux-files and the
+# Builds the Dux suite (dux-shell, dux-qt-base, dux-greeter, dux-search, dux-gop, dux-files and the
 # dux-plugin-registry plugins enabled in nix-config) from their master branches and pushes it to
 # Cachix, so `nh os switch` downloads them instead of compiling.
 #
-# It only does real work when something is new: every few minutes a cheap check (no Nix, a few
+# It only does real work when something is new: every 30 minutes a cheap check (no Nix, a few
 # `git ls-remote` calls) looks at the upstream commits that feed the build. If that exact set was
 # already built, the run ends right there. The upstream repos are not ours, so we poll them
 # instead of getting a webhook.
@@ -16,7 +16,7 @@ name: Cache Dux suite
 
 on:
   schedule:
-    - cron: "3,18,33,48 * * * *"
+    - cron: "3,33 * * * *"
   push:
     paths:
       - ".github/workflows/cache-dux.yml"
@@ -87,6 +87,7 @@ jobs:
               echo "$r $(rev "https://github.com/duxlabs-dev/$r" refs/heads/master)"
             done
             echo "dux-qml-common $(rev https://github.com/duxlabs-dev/dux-qml-common HEAD)"
+            echo "dux-qt-base $(rev https://github.com/duxlabs-dev/dux-qt-base HEAD)"
             echo "nixpkgs $(rev https://github.com/NixOS/nixpkgs refs/heads/nixos-unstable)"
             echo "ci-files $(cat ci/dux/flake.nix ci/dux/plugins.json .github/workflows/cache-dux.yml | sha256sum | cut -c1-16)"
           } | tee revs.txt
@@ -161,7 +162,7 @@ jobs:
         working-directory: ci/dux
         run: |
           set -uo pipefail
-          targets=(dux-shell quickshell dux-greeter dux-search dux-gop dux-files dux-plugins)
+          targets=(dux-qt-base dux-shell dux-greeter dux-search dux-gop dux-files dux-plugins)
           failed=()
           for t in "${targets[@]}"; do
             echo "::group::$t"

@@ -51,11 +51,21 @@
       # Plugins enabled in nix-config (programs.dank-material-shell.plugins). The workflow
       # regenerates this file from nix-config's modules/niri.nix before building.
       plugins = builtins.fromJSON (builtins.readFile ./plugins.json);
+
+      # the dux-qt-base a given dux repo builds against (same call the repos make themselves)
+      qtBaseOf = input: (input.inputs.dux-qt-base.overlays.default pkgs pkgs).dux-qt-base;
     in
     {
       packages.${system} = {
         dux-shell = dux-shell.packages.${system}.dms-shell;
-        quickshell = dux-shell.packages.${system}.quickshell;
+        # quickshell was replaced upstream by dux-qt-base. Each of dux-shell / dux-greeter / dux-files
+        # pins its own copy as a flake input and builds it through the overlay, so build the exact
+        # one each of them uses (nix dedupes them when the revisions match).
+        dux-qt-base = pkgs.linkFarm "dux-qt-base" [
+          { name = "dux-shell"; path = qtBaseOf dux-shell; }
+          { name = "dux-greeter"; path = qtBaseOf dux-greeter; }
+          { name = "dux-files"; path = qtBaseOf dux-files; }
+        ];
         dux-greeter = dux-greeter.packages.${system}.dms-greeter;
         dux-search = dux-search.packages.${system}.dsearch;
         dux-files = dux-files.packages.${system}.dux-files;
