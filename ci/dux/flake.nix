@@ -7,13 +7,18 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
+    # shared by dux-shell / dux-greeter / dux-files (does NOT follow nixpkgs, same as nix-config)
+    dux-qt-base.url = "github:duxlabs-dev/dux-qt-base";
+
     dux-shell = {
       url = "github:duxlabs-dev/dux-shell/master";
       inputs.nixpkgs.follows = "nixpkgs";
+      inputs.dux-qt-base.follows = "dux-qt-base";
     };
     dux-greeter = {
       url = "github:duxlabs-dev/dux-greeter/master";
       inputs.nixpkgs.follows = "nixpkgs";
+      inputs.dux-qt-base.follows = "dux-qt-base";
     };
     dux-search = {
       url = "github:duxlabs-dev/dux-search/master";
@@ -26,6 +31,7 @@
     dux-files = {
       url = "github:duxlabs-dev/dux-files/master";
       inputs.nixpkgs.follows = "nixpkgs";
+      inputs.dux-qt-base.follows = "dux-qt-base";
     };
     dux-plugin-registry = {
       url = "github:duxlabs-dev/dux-plugin-registry/master";
@@ -36,6 +42,7 @@
   outputs =
     {
       nixpkgs,
+      dux-qt-base,
       dux-shell,
       dux-greeter,
       dux-search,
@@ -51,6 +58,9 @@
       # Plugins enabled in nix-config (programs.dank-material-shell.plugins). The workflow
       # regenerates this file from nix-config's modules/niri.nix before building.
       plugins = builtins.fromJSON (builtins.readFile ./plugins.json);
+
+      # same call the dux repos make themselves (their `duxQtBaseFor pkgs`)
+      qtBase = (dux-qt-base.overlays.default pkgs pkgs).dux-qt-base;
 
       # the dux-qt-base a given dux repo builds against (same call the repos make themselves)
       qtBaseOf = input: (input.inputs.dux-qt-base.overlays.default pkgs pkgs).dux-qt-base;
