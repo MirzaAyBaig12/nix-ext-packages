@@ -22,6 +22,10 @@
   dpkg,
   buildFHSEnv,
   writeShellScript,
+  writeText,
+  carlito,
+  dejavu_fonts,
+  liberation_ttf,
 }:
 
 let
@@ -32,6 +36,38 @@ let
     url = "https://github.com/Euro-Office/DesktopEditors/releases/download/v${version}/euro-office-euro-office_${version}-0_amd64.deb";
     hash = "sha256-GBbEzV1YBrdXRow9xX7HbCOs0eoIUtRB5Q1qVJ0hfaE=";
   };
+
+  # The bundle ships its own (older) libfontconfig, which can't parse the config files
+  # of the fontconfig in the FHS env or on the host (xsi:nil, newer constants), spams
+  # errors and can end up with no usable fonts. Point it at a minimal config using only
+  # syntax old fontconfig understands, and list the font dirs explicitly instead of
+  # including the host's conf.d.
+  fontsConf = writeText "euro-office-fonts.conf" ''
+    <?xml version="1.0"?>
+    <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+    <fontconfig>
+      <dir>${carlito}/share/fonts</dir>
+      <dir>${dejavu_fonts}/share/fonts</dir>
+      <dir>${liberation_ttf}/share/fonts</dir>
+      <dir>/run/current-system/sw/share/X11/fonts</dir>
+      <dir>/usr/share/fonts</dir>
+      <dir prefix="xdg">fonts</dir>
+      <dir>~/.fonts</dir>
+      <cachedir prefix="xdg">fontconfig</cachedir>
+      <alias>
+        <family>sans-serif</family>
+        <prefer><family>Noto Sans</family><family>DejaVu Sans</family></prefer>
+      </alias>
+      <alias>
+        <family>serif</family>
+        <prefer><family>Noto Serif</family><family>DejaVu Serif</family></prefer>
+      </alias>
+      <alias>
+        <family>monospace</family>
+        <prefer><family>DejaVu Sans Mono</family></prefer>
+      </alias>
+    </fontconfig>
+  '';
 
   # The deb's payload, untouched: no patchelf, no stripping, no shebang rewrite.
   unwrapped = stdenvNoCC.mkDerivation {
@@ -81,6 +117,7 @@ buildFHSEnv {
       harfbuzz
       libnotify
       libpulseaudio
+      pipewire
       libxkbcommon
       libxscrnsaver
       nss
@@ -163,6 +200,10 @@ buildFHSEnv {
     # The upstream launcher sets LD_LIBRARY_PATH/LD_PRELOAD and execs
     # /opt/euro-office/euro-office/DesktopEditors. Keep using it as shipped;
     # only /opt is merged into the FHS root, so call it from the store path.
+    # The bundled Qt has no kvantum style / qt5ct platform theme plugin; the global
+    # QT_STYLE_OVERRIDE=kvantum / QT_QPA_PLATFORMTHEME=qt5ct only produce warnings.
+    unset QT_STYLE_OVERRIDE QT_QPA_PLATFORMTHEME
+    export FONTCONFIG_FILE=${fontsConf}
     exec ${unwrapped}/usr/bin/euro-office-euro-office "$@"
   '';
 
