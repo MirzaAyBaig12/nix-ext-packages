@@ -7,20 +7,19 @@
 # AirPlay sender for Linux (X11 & Wayland), github.com/omarroth/doubletake.
 # Upstream ships fully static x86_64 binaries, so they are installed as-is.
 let
-  version = "0.5.0";
-  base = "https://github.com/omarroth/doubletake/releases/download/v${version}";
+  version = "0.6.0";
 
   doubletake = fetchurl {
-    url = "${base}/doubletake";
-    hash = "sha256-WQJ0VbuETxURkjJgBWmt7XISAycQAVkaCvxaDQfAa1w=";
+    url = "https://github.com/omarroth/doubletake/releases/download/v${version}/doubletake";
+    hash = "sha256-Aftse53m871pOmKeJI/mHOt68GNTyPPyHMKYeNH59d4=";
   };
   doubletake-ctl = fetchurl {
-    url = "${base}/doubletake-ctl";
-    hash = "sha256-HPQBlfg+9MH4hTkuG5DSzgdycLk5GjinF1mBcMsapOs=";
+    url = "https://github.com/omarroth/doubletake/releases/download/v${version}/doubletake-ctl";
+    hash = "sha256-5UGMFzBnfT+PZIDAxftLS2ioWkCLNtnSnDDE8BBgirQ=";
   };
   manpages = fetchurl {
-    url = "${base}/doubletake-manpages.tar.gz";
-    hash = "sha256-aIrFGxDgCuq0ogMGAyThu4v5KJLBz9slj71rfOAUdd0=";
+    url = "https://github.com/omarroth/doubletake/releases/download/v${version}/doubletake-manpages.tar.gz";
+    hash = "sha256-n734uR3qS1ELVHYC9QTHiljeLOD40fs8wAbepfDBGdw=";
   };
 in
 stdenvNoCC.mkDerivation {

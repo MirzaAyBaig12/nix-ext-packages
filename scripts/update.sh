@@ -1,48 +1,37 @@
 #!/usr/bin/env bash
-# Bumps version + hash for every packages/*.nix that fetches from GitHub releases,
-# plus the packages with their own upstream feed (3utools: scraped from 3u.com).
+# Bumps version + hashes for every packages/*.nix that fetches from GitHub releases.
+# A package may have several versioned assets (url + hash pairs); all of them are
+# refreshed, as long as they point at the same repository.
 # DRY_RUN=1 ./scripts/update.sh   -> only report what would change
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 re='github\.com/([^/]+)/([^/]+)/releases/download/([^$]*)\$\{version\}'
 
-# 3uTools is proprietary and has no GitHub releases: the official download page
-# links the current Linux deb (…/com.3u.3utools_<version>_amd64.deb).
-latest_3utools_url() {
-  curl -fsSL -A 'Mozilla/5.0' https://www.3u.com/download \
-    | grep -oP 'https://dl\.3u\.com/[^"'"'"' <>]*/com\.3u\.3utools_[0-9][0-9.]*_amd64\.deb' \
-    | sort -uV | tail -n1 || true
-}
-
 for file in packages/*.nix; do
   name=$(basename "$file" .nix)
   # grep exits 1 on no match (e.g. packages that don't fetch anything, like
   # browser-ext-sync), which would kill the script under pipefail.
-  url=$(grep -oP '^\s*url = "\K[^"]+' "$file" | head -1 || true)
+  urls=$(grep -oP '^\s*url = "\K[^"]+' "$file" || true)
   cur=$(grep -oP '^\s*version = "\K[^"]+' "$file" | head -1 || true)
-  old_hash=$(grep -oP '^\s*hash = "\K[^"]+' "$file" | head -1 || true)
-  url_template=$url
 
-  if [[ $name == 3utools ]]; then
-    scraped=$(latest_3utools_url)
-    if [[ -z $scraped ]]; then
-      echo "[$name] couldn't find the deb link on 3u.com, skipping"
-      continue
+  first_url=""
+  while IFS= read -r url; do
+    if [[ $url =~ $re ]]; then
+      first_url=$url
+      owner=${BASH_REMATCH[1]}; repo=${BASH_REMATCH[2]}; prefix=${BASH_REMATCH[3]}
+      break
     fi
-    new=$(grep -oP '_\K[0-9][0-9.]*(?=_amd64\.deb$)' <<<"$scraped")
-    # keep the url in the .nix templated on ${version} (the vNNN dir may change upstream)
-    url_template=${scraped//"_${new}_"/'_${version}_'}
-  elif [[ -n $url && $url =~ $re ]]; then
-    owner=${BASH_REMATCH[1]}; repo=${BASH_REMATCH[2]}; prefix=${BASH_REMATCH[3]}
+  done <<<"$urls"
 
-    tag=$(curl -fsSL ${GH_TOKEN:+-H "Authorization: Bearer $GH_TOKEN"} \
-      "https://api.github.com/repos/$owner/$repo/releases/latest" | jq -r .tag_name)
-    new=${tag#"$prefix"}
-  else
+  if [[ -z $first_url ]]; then
     echo "[$name] url isn't a GitHub release pattern, skipping"
     continue
   fi
+
+  tag=$(curl -fsSL ${GH_TOKEN:+-H "Authorization: Bearer $GH_TOKEN"} \
+    "https://api.github.com/repos/$owner/$repo/releases/latest" | jq -r .tag_name)
+  new=${tag#"$prefix"}
 
   if [[ -z $new || $new == "null" || $new == "$cur" ]]; then
     echo "[$name] up to date ($cur)"
@@ -52,14 +41,18 @@ for file in packages/*.nix; do
   echo "[$name] $cur -> $new"
   [[ -n ${DRY_RUN:-} ]] && continue
 
-  new_url=${url_template//'${version}'/$new}
-  new_hash=$(nix store prefetch-file --json "$new_url" | jq -r .hash)
+  # Update every versioned asset from this repo and the hash that follows it.
+  while IFS= read -r url; do
+    [[ $url =~ $re ]] || continue
+    [[ ${BASH_REMATCH[1]} == "$owner" && ${BASH_REMATCH[2]} == "$repo" ]] || continue
+
+    new_url=${url//'${version}'/$new}
+    new_hash=$(nix store prefetch-file --json "$new_url" | jq -r .hash)
+    URL=$url NEW_HASH=$new_hash perl -0pi -e \
+      's|(\Q$ENV{URL}\E.*?hash = ")[^"]+(")|${1}$ENV{NEW_HASH}${2}|s' "$file"
+  done <<<"$urls"
 
   sed -i "s|version = \"$cur\";|version = \"$new\";|" "$file"
-  sed -i "s|hash = \"$old_hash\";|hash = \"$new_hash\";|" "$file"
-  if [[ $url_template != "$url" ]]; then
-    sed -i "s|url = \"$url\";|url = \"$url_template\";|" "$file"
-  fi
 
   if [[ -n ${CI:-} ]]; then
     git add "$file"
