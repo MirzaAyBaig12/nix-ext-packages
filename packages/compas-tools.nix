@@ -6,11 +6,11 @@
 
 let
   pname = "compas-tools";
-  version = "0.1.4";
+  version = "0.1.5";
 
   src = fetchurl {
     url = "https://github.com/Starnished66/compas-tools/releases/download/v${version}/Compas.Tools_${version}_amd64.AppImage";
-    hash = "sha256-AbuTqAieIkQLuK6pQ8OrUROQccqN6Ml8olLvlUNIilE=";
+    hash = "sha256-wuqXCJHGGxpbL/rrqIeIDGqPBLutggS/rxoEM7gz2MQ=";
   };
 
   appimageContents = appimageTools.extract {
