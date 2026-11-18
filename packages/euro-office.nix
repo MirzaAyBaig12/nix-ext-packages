@@ -159,6 +159,7 @@ buildFHSEnv {
       libxcb-image
       libxcb-keysyms
       libxcb-render-util
+      libxcb-util
       libxcb-wm
       libxcomposite
       libxcursor
@@ -192,6 +193,7 @@ buildFHSEnv {
       libxml2
       openssl
       shared-mime-info
+      systemdLibs # CEF dlopens libudev.so.1 and crashes if it is absent
       zlib
       zstd
     ];

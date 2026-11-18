@@ -81,7 +81,9 @@ every 4 hours, runs `nix flake check --no-build`, then builds every package.
 - Missing shared libraries: inspect the FHS rootfs with:
   `LD_LIBRARY_PATH="<rootfs>/usr/lib64:<appdir>" ldd <appdir>/<binary> | grep 'not found'`
   then add the owning nixpkgs packages to `targetPkgs` (for example `libgbm`,
-  `zstd`, `brotli`, `libkrb5`, `libxcb-*`).
+  `zstd`, `brotli`, `libkrb5`, `libxcb-*`). Also check runtime `dlopen` failures with
+  `strace -f -e trace=openat,openat2`: CEF can crash when `libudev.so.1` is absent even
+  though the main binary's `ldd` is clean; add `systemdLibs` for it.
 - Add an absolute desktop `Exec` and copy icons in `extraInstallCommands`:
   `install -Dm644 ...desktop $out/share/applications/...` then
   `substituteInPlace ... --replace-fail '/usr/bin/old' "$out/bin/new"`.
