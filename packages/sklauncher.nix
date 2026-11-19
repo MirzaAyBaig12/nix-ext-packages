@@ -6,11 +6,11 @@
 
 let
   pname = "sklauncher";
-  version = "4.0.57";
+  version = "4.0.58";
 
   src = fetchurl {
     url = "https://github.com/sklauncher/binaries/releases/download/v${version}/SKlauncher-${version}-x86_64.AppImage";
-    hash = "sha256-/xF9dRn20DaJcxK3mumhp75pWnXUO7BldqtrVnkRQPk=";
+    hash = "sha256-HOw2q5cMvA/oMpcak19FgpCN4kwxrHg5xWf+dyQZFfc=";
   };
 
   appimageContents = appimageTools.extract {
