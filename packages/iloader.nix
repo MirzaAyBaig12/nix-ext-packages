@@ -31,11 +31,11 @@
 
 let
   pname = "iloader";
-  version = "2.4.1";
+  version = "2.4.2";
 
   src = fetchurl {
     url = "https://github.com/nab138/iloader/releases/download/v${version}/iloader-linux-amd64.deb";
-    hash = "sha256-k/HmbBc6R5JXBMR1fBN+dm/6UTOuwfQXbYMf94Up6Xk=";
+    hash = "sha256-7mHMJ/BD8cWOEPg5esiPtY26UWYNYE1MN3tEaZp8Wt0=";
   };
 
   # The deb's payload, untouched.
