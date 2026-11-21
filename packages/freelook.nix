@@ -66,6 +66,8 @@ buildFHSEnv {
     pkgs: with pkgs; [
       # What the binary links against (the deb's Depends)
       gtk3
+      webkitgtk_4_1
+      libsoup_3
       libappindicator-gtk3
       nss
       libsecret
