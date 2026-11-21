@@ -69,6 +69,7 @@ buildFHSEnv {
       libappindicator-gtk3
       nss
       libsecret
+      openssl
       glib
       cairo
       gdk-pixbuf
