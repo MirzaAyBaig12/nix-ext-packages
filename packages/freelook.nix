@@ -18,6 +18,7 @@
   libappindicator-gtk3,
   nss,
   libsecret,
+  glib-networking,
   gsettings-desktop-schemas,
   adwaita-icon-theme,
   hicolor-icon-theme,
