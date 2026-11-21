@@ -37,6 +37,7 @@
         euro-office = pkgs.callPackage ./packages/euro-office.nix { };
         bibata-material-cursor = pkgs.callPackage ./packages/bibata-material-cursor.nix { };
         browser-ext-sync = pkgs.callPackage ./packages/browser-ext-sync.nix { };
+        freelook = pkgs.callPackage ./packages/freelook.nix { };
       };
 
       # `pkgs.browser-ext-sync`: declarative Web Store extensions for Helium +
