@@ -38,6 +38,7 @@
         bibata-material-cursor = pkgs.callPackage ./packages/bibata-material-cursor.nix { };
         browser-ext-sync = pkgs.callPackage ./packages/browser-ext-sync.nix { };
         freelook = pkgs.callPackage ./packages/freelook.nix { };
+        prospect-mail = pkgs.callPackage ./packages/prospect-mail.nix { };
       };
 
       # `pkgs.browser-ext-sync`: declarative Web Store extensions for Helium +
@@ -49,6 +50,8 @@
       # doesn't cause infinite recursion. Keep this overlay BEFORE such overrides.
       overlays.default = final: prev: {
         browser-ext-sync = final.callPackage ./packages/browser-ext-sync.nix { };
+        freelook = final.callPackage ./packages/freelook.nix { };
+        prospect-mail = final.callPackage ./packages/prospect-mail.nix { };
         ungoogled-chromium-base = prev.ungoogled-chromium;
       };
 
