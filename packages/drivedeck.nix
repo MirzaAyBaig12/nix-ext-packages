@@ -63,11 +63,11 @@
 
 let
   pname = "drivedeck";
-  version = "1.6.2";
+  version = "1.7.1";
 
   src = fetchurl {
     url = "https://github.com/sweatshopking/DriveDeck/releases/download/v${version}/drivedeck_${version}_amd64.deb";
-    hash = "sha256-KSP2UEKVpj5d56pwJuiI2LoVVXPsd4q8S0lTkKxyhlU=";
+    hash = "sha256-+Oh7p1DeHrEZQGtieLx7evj0zZ8Z+l3OIL3pWbm5bd8=";
   };
 
   # Everything the binary dlopens at runtime (the deb's Depends:, plus the
