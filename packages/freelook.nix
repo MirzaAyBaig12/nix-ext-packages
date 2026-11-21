@@ -94,6 +94,8 @@ buildFHSEnv {
   runScript = writeShellScript "freelook-run" ''
     # GTK file dialogs abort without the gtk3 / desktop gsettings schemas
     export XDG_DATA_DIRS="${gtk3}/share/gsettings-schemas/${gtk3.name}:${gsettings-desktop-schemas}/share/gsettings-schemas/${gsettings-desktop-schemas.name}:/usr/share:''${XDG_DATA_DIRS:-}"
+    # WebKitGTK needs glib-networking's GIO modules for TLS/HTTPS support
+    export GIO_EXTRA_MODULES="${glib-networking}/lib/gio/modules"
     exec ${unwrapped}/usr/bin/freelook "$@"
   '';
 
