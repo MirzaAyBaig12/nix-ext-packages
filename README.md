@@ -31,37 +31,9 @@ environment.systemPackages = [
 
 Or just try one: `nix run github:MirzaAyBaig12/nix-ext-packages#openidea`
 
-### Spotify → HiBy
+### Spotify → DAP
 
-Apply `overlays.default` (or `overlays.spotify-downloader`), import the
-`homeManagerModules.spotify-downloader` / `nixosModules.spotify-downloader`
-module, then:
-
-```nix
-programs.spotify-downloader = {
-  enable = true;
-  musicDevice = "HiBy R1 SD";
-};
-```
-
-That puts `spotify-downloader` (alias: `spot2hiby`) in PATH. Paste Spotify
-links one per line, type `done`, and tagged FLACs with cover art and embedded
-lyrics land in `/run/media/$USER/HiBy R1 SD/Music/<Artist>/<Album>/`. `mountRoot`
-and `musicDir` are also configurable via the module.
-
-Lyrics come from LRCLIB first (widest coverage, including Arabic nasheeds),
-then Genius, then YouTube Music. The Spotify URL is stored in the `SOURCE` tag
-(as well as `COMMENT`), so existing files can be refreshed in place:
-
-```sh
-spotify-downloader --update-metadata ~/Music/HiBy
-```
-
-That rereads `SOURCE`, refreshes Spotify tags, fills gaps from YT Music only,
-embeds lyrics, and writes the link back — without moving or renaming anything.
-Both `--update-metadata` and `--metadata-update` work. If none of the three
-lyric sources has a track, it stays untagged and the summary lists it under
-"without lyrics" — no silent misses.
+Now lives in its own repo: [music2dap](https://github.com/MirzaAyBaig12/music2dap).
 
 ## Binary cache
 
@@ -177,7 +149,6 @@ the latest `nixos-unstable` and Lix `main`. So:
 | [`modrinth`](packages/modrinth.nix) | Modrinth App, a Minecraft launcher and mod manager. | AppImage |
 | [`openidea`](packages/openidea.nix) | OpenIDEA, an open-source IDE inspired by IntelliJ IDEA, rebuilt in Rust (Tauri). Not affiliated with JetBrains, and JetBrains plugins don't work with it. | Official `.deb`, run in an FHS env |
 | [`sklauncher`](packages/sklauncher.nix) | SKLauncher, a Minecraft launcher. | AppImage |
-| [`spotify-downloader`](packages/spot2hiby.nix) | Terminal UI: paste Spotify links (track, album or playlist), type `done`, get tagged FLACs with cover art + lyrics in `<device>/Music/<Artist>/<Album>/`; `--update-metadata` refreshes existing files. Spotify metadata and cover come first, YT Music only fills what Spotify lacks (and supplies the audio). Installed by `programs.spotify-downloader`; `musicDevice` (default `HiBy R1 SD`) is looked up under `/run/mount/ayaan_mirza/`. Also available as `pkgs.spot2hiby`. | Python script (nothing fetched) |
 | [`ventoy`](packages/ventoy.nix) | Ventoy, a tool to create bootable USB drives for ISO/WIM/IMG/VHD(x)/EFI files. Provides `ventoy` (CLI), `ventoy-web` (web UI) and `ventoy-gui` (GTK3 GUI). | Upstream release tarball, patched except the GTK3 binary |
 
 ## Modules
@@ -186,11 +157,9 @@ the latest `nixos-unstable` and Lix `main`. So:
 | --- | --- |
 | `nixosModules.natsumi` / `homeManagerModules.natsumi` | `programs.natsumi`: installs fx-autoconfig and the [Natsumi](https://github.com/greeeen-dev/natsumi-browser) theme into a Firefox-family browser (Firefox, LibreWolf, Floorp). Sources are pinned as flake inputs and auto-bumped. |
 | `homeManagerModules.browser-extensions` | `programs.ungoogled-chromium.extensions` and `programs.helium.extensions`: declarative Chrome Web Store extensions, built on `browser-ext-sync`. Doesn't install the browsers themselves. |
-| `nixosModules.spotify-downloader` / `homeManagerModules.spotify-downloader` | `programs.spotify-downloader`: `enable`, `musicDevice` (`"HiBy R1 SD"`), `mountRoot` (`"/run/mount/ayaan_mirza"`), `musicDir` (`"Music"`). Installs `spotify-downloader` into PATH. |
 
-There's also an overlay (`overlays.default`) that adds `pkgs.spotify-downloader`,
-`pkgs.spot2hiby`, `pkgs.browser-ext-sync` and `pkgs.ungoogled-chromium-base`.
-`overlays.spotify-downloader` adds just the first two.
+There's also an overlay (`overlays.default`) that adds `pkgs.browser-ext-sync`
+and `pkgs.ungoogled-chromium-base`.
 
 ## Adding a package
 
