@@ -5,8 +5,12 @@ Metadata and cover art come from Spotify's public pages (no API key needed).
 Spotify audio is DRM'd, so the actual audio is matched on YouTube Music and
 converted to FLAC. YouTube Music is also the fallback for anything Spotify
 doesn't know (album, track number, year, cover), and only for those fields.
+Lyrics are embedded from LRCLIB, then Genius, then YouTube Music.
 
-Result on the device:  /run/mount/ayaan_mirza/<device>/Music/<Album>/<NN - Title>.flac
+The Spotify URL is stored in the SOURCE tag (and COMMENT for older readers),
+so `--update-metadata` can refresh tags and lyrics without needing the link.
+
+Result on the device:  /run/media/$USER/<device>/Music/<Artist>/<Album>/<NN - Title>.flac
 """
 
 from __future__ import annotations
@@ -23,7 +27,9 @@ import time
 import unicodedata
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
+from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import quote, urlencode
 
 try:
     import readline  # noqa: F401  (line editing for the URL prompt)
@@ -41,7 +47,9 @@ from rich.spinner import Spinner
 from rich.table import Table
 from rich.text import Text
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
+
+DEFAULT_MOUNT_ROOT = "/run/media/$USER"
 
 # Catppuccin Mocha, to match the rest of Axiom.
 MAUVE, TEXT, SUB, DIM = "#cba6f7", "#cdd6f4", "#a6adc8", "#6c7086"
@@ -95,6 +103,8 @@ _BRACKETS = re.compile(r"[\(\[].*?[\)\]]")
 def norm(s: str) -> str:
     """Normalise a title/artist for fuzzy comparison (keeps non-Latin scripts)."""
     base = unicodedata.normalize("NFKC", s or "").casefold()
+    # NFKC expands ﷺ into this phrase; drop it so "Song ﷺ" == "Song".
+    base = base.replace("صلى الله عليه وسلم", " ").replace("\u0640", "")
     stripped = _BRACKETS.sub(" ", base)
     stripped = re.sub(r"\s-\s.*$", " ", stripped)
     out = re.sub(r"[\W_]+", " ", stripped).strip()
@@ -196,6 +206,15 @@ UA = "Mozilla/5.0"
 http = requests.Session()
 http.headers.update({"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9"})
 
+# Genius refuses the bare UA that Spotify serves its metadata to, so lyrics get
+# their own client with a normal browser UA. No API keys anywhere.
+lyric_http = requests.Session()
+lyric_http.headers.update({
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    "Accept-Language": "en-US,en;q=0.9",
+})
+
 SPOTIFY_LINK = re.compile(
     r"open\.spotify\.com/(?:intl-[a-zA-Z-]+/)?(?:embed/)?(track|album|playlist)/([A-Za-z0-9]{22})"
 )
@@ -218,6 +237,15 @@ def get(url: str) -> requests.Response:
             last = e
             time.sleep(1 + attempt)
     raise PipelineError(f"network error: {last}")
+
+
+def get_quiet(url: str, session=None, timeout: int = 15):
+    """A GET where 404/blocks are an ordinary 'not found', not a retry storm."""
+    try:
+        r = (session or http).get(url, timeout=timeout)
+        return r if r.ok else None
+    except requests.RequestException:
+        return None
 
 
 def meta_tags(page: str) -> list[tuple[str, str]]:
@@ -532,7 +560,234 @@ def fetch_cover(url: str) -> bytes:
     return data
 
 
-def tag_flac(path: Path, t: Track, cover: bytes | None) -> None:
+# --------------------------------------------------------------------------- #
+# Lyrics: LRCLIB -> Genius -> YouTube Music. No API keys, works for Arabic
+# nasheeds as well as ordinary songs (LRCLIB is the synced-LRC source).
+# --------------------------------------------------------------------------- #
+
+@dataclass
+class Lyrics:
+    text: str
+    source: str
+    synced: str = ""
+
+    def __bool__(self) -> bool:
+        return bool(self.text)
+
+
+GENIUS_JUNK = (
+    "how to format lyrics", "you might also like", "embed", "cancel",
+    "read more", "learn more", "sign up", "q&a", "song bio", "about this song",
+)
+
+
+def clean_lyrics(raw: str, source: str = "") -> str:
+    """Keep section headers ([Chorus], [المقطع الأول]) but drop page furniture."""
+    if not raw:
+        return ""
+    text = html.unescape(raw).replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
+    text = re.sub(r"<[^>]+>", "", text)
+    if source == "genius":
+        text = re.sub(r"^\s*\d+\s+Contributors?.*?\bLyrics\b\s*", "", text, count=1, flags=re.I | re.S)
+    lines: list[str] = []
+    for line in text.split("\n"):
+        s = line.strip()
+        low = s.casefold()
+        if not s:
+            lines.append("")
+            continue
+        if low in ("lyrics", "instrumental"):
+            continue
+        if source == "genius" and any(j in low for j in GENIUS_JUNK):
+            continue
+        lines.append(s)
+    out: list[str] = []
+    blanks = 0
+    for s in lines:
+        if s:
+            if blanks and out:
+                out.append("")
+            out.append(s)
+            blanks = 0
+        else:
+            blanks += 1
+    return "\n".join(out).strip()
+
+
+class GeniusLyricsParser(HTMLParser):
+    """Collect only text inside Genius' (nested) lyrics containers."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.depth = 0
+        self.skip = 0
+        self.chunks: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if self.skip:
+            if tag == "div":
+                self.skip += 1
+            return
+        if tag == "div":
+            if self.depth == 0:
+                if a.get("data-lyrics-container") == "true":
+                    self.depth = 1
+                    if a.get("data-exclude-from-selection") == "true":
+                        self.skip = 1
+            else:
+                self.depth += 1
+                if a.get("data-exclude-from-selection") == "true":
+                    self.skip = 1
+        elif self.depth and tag in ("br", "p"):
+            self.chunks.append("\n")
+
+    def handle_endtag(self, tag):
+        if self.skip:
+            if tag == "div":
+                self.skip -= 1
+            return
+        if self.depth and tag == "div":
+            self.depth -= 1
+
+    def handle_data(self, data):
+        if self.depth and not self.skip:
+            self.chunks.append(data)
+
+
+def similar(a: str, b: str) -> float:
+    a, b = norm(a), norm(b)
+    return SequenceMatcher(None, a, b).ratio() * 3 if a and b else 0.0
+
+
+def artist_ok(wanted: list[str], got: list[str]) -> bool:
+    words = {w for a in wanted for w in norm(a).split() if len(w) > 1}
+    blob = " ".join(norm(a) for a in got)
+    return any(w in blob for w in words) if words else True
+
+
+def lrclib_lyrics(t: Track, duration: int = 0) -> Lyrics | None:
+    params = {"track_name": t.title, "artist_name": t.artists[0] if t.artists else ""}
+    if t.album:
+        params["album_name"] = t.album
+    if duration:
+        params["duration"] = str(duration)
+    r = get_quiet("https://lrclib.net/api/get?" + urlencode(params))
+    row = None
+    if r:
+        try:
+            row = r.json()
+        except ValueError:
+            pass
+    if row and row.get("instrumental"):
+        return None
+    if not row:
+        q = " ".join(([t.artists[0]] if t.artists else []) + [t.title])
+        r = get_quiet("https://lrclib.net/api/search?" + urlencode({"q": q}))
+        try:
+            rows = r.json() if r else []
+        except ValueError:
+            rows = []
+        best, score = None, 0.0
+        for item in rows if isinstance(rows, list) else []:
+            s = similar(t.title, item.get("trackName") or "")
+            if artist_ok(t.artists, [item.get("artistName", "")]):
+                s += 2
+            if s > score:
+                best, score = item, s
+        row = best if score >= 4.5 else None
+    if not row:
+        return None
+    raw = row.get("plainLyrics") or row.get("syncedLyrics") or ""
+    text = clean_lyrics(raw, "lrclib")
+    return Lyrics(text, "LRCLIB", row.get("syncedLyrics") or "") if len(text) >= 20 else None
+
+
+def genius_lyrics(t: Track) -> Lyrics | None:
+    def find_path(query: str, need_artist: bool) -> str:
+        r = get_quiet("https://genius.com/api/search/multi?" + urlencode({"q": query}), lyric_http)
+        if not r:
+            return ""
+        try:
+            sections = r.json()["response"]["sections"]
+        except (KeyError, ValueError, TypeError):
+            return ""
+        rows = [
+            h["result"] for sec in sections for h in (sec.get("hits") or [])
+            if h.get("type") == "song" and h.get("result") and h["result"].get("path")
+        ]
+        best, score = "", 0.0
+        for row in rows:
+            if row.get("instrumental"):
+                continue
+            if need_artist and not artist_ok(t.artists, [row.get("artist_names", "")]):
+                continue
+            s = similar(t.title, row.get("title", ""))
+            if need_artist:
+                s += 2
+            if s > score and s >= (4.5 if need_artist else 2.7):
+                best, score = row["path"], s
+        return best
+
+    # Most tracks match on artist + title. Some nasheeds are on Genius only
+    # under the well-known singer, so retry on title alone.
+    q = " ".join(([t.artists[0]] if t.artists else []) + [t.title])
+    path = find_path(q, True) or find_path(t.title, False)
+    if not path:
+        return None
+    page = get_quiet("https://genius.com" + path, lyric_http)
+    if not page:
+        return None
+    parser = GeniusLyricsParser()
+    try:
+        parser.feed(page.text)
+    except Exception:
+        pass
+    raw = "\n".join(parser.chunks) if parser.chunks else ""
+    if not raw.strip():
+        m = re.search(r'<div class="lyrics">(.*?)</div>', page.text, re.S)
+        raw = m.group(1) if m else ""
+    text = clean_lyrics(raw, "genius")
+    return Lyrics(text, "Genius") if len(text) >= 20 else None
+
+
+def ytm_lyrics(yt, t: Track) -> Lyrics | None:
+    """Last resort: only the single confident YT Music match for this track."""
+    try:
+        hit = find_match(yt, t)
+        if not hit:
+            return None
+        browse_id = (yt.get_watch_playlist(hit["videoId"]) or {}).get("lyrics")
+        if not browse_id:
+            return None
+        raw = (yt.get_lyrics(browse_id) or {}).get("lyrics") or ""
+        text = clean_lyrics(raw, "ytmusic")
+        return Lyrics(text, "YT Music") if len(text) >= 20 else None
+    except Exception:
+        return None
+
+
+def fetch_lyrics(yt, t: Track, duration: int = 0) -> Lyrics | None:
+    """First source with real lyrics wins; LRCLIB gives synced LRC when possible."""
+    for fn in (lrclib_lyrics, genius_lyrics):
+        try:
+            got = fn(t, duration) if fn is lrclib_lyrics else fn(t)
+            if got:
+                return got
+        except Exception:
+            pass
+    return ytm_lyrics(yt, t)
+
+
+def apply_lyrics(f: FLAC, lyrics: Lyrics) -> None:
+    f["LYRICS"] = lyrics.text
+    f["UNSYNCEDLYRICS"] = lyrics.text
+    if lyrics.synced:
+        f["SYNCEDLYRICS"] = lyrics.synced
+
+
+def tag_flac(path: Path, t: Track, cover: bytes | None, lyrics: Lyrics | None = None) -> None:
     f = FLAC(path)
     f.clear()
     f.clear_pictures()
@@ -552,7 +807,12 @@ def tag_flac(path: Path, t: Track, cover: bytes | None) -> None:
         f["DISCTOTAL"] = str(t.disc_total)
     if t.date:
         f["DATE"] = t.date
-    f["COMMENT"] = f"https://open.spotify.com/track/{t.id}"
+    source = f"https://open.spotify.com/track/{t.id}" if t.id else ""
+    if source:
+        f["SOURCE"] = source  # canonical link, read back by --update-metadata
+        f["COMMENT"] = source  # older readers still understand this
+    if lyrics:
+        apply_lyrics(f, lyrics)
     if cover:
         pic = Picture()
         pic.type = 3  # front cover
@@ -563,7 +823,21 @@ def tag_flac(path: Path, t: Track, cover: bytes | None) -> None:
     f.save()
 
 
+def track_artist(t: Track) -> str:
+    """Album artist for the folder, falling back to the first credited artist."""
+    return t.album_artist or (t.artists[0] if t.artists else "") or "Unknown Artist"
+
+
+def folder_label(dev: Device, path: Path) -> str:
+    """How an album folder is shown in the TUI: Artist/Album."""
+    try:
+        return str(path.parent.relative_to(dev.library))
+    except ValueError:
+        return path.parent.name
+
+
 def target_path(dev: Device, t: Track) -> Path:
+    artist = safe_name(track_artist(t), "Unknown Artist")
     album = safe_name(t.album, "Unknown Album")
     title = safe_name(t.title, "Track")
     if t.track_no:
@@ -571,7 +845,7 @@ def target_path(dev: Device, t: Track) -> Path:
         name = f"{prefix} - {title}.flac"
     else:
         name = f"{title}.flac"
-    return dev.library / album / name
+    return dev.library / artist / album / name
 
 
 # --------------------------------------------------------------------------- #
@@ -584,15 +858,22 @@ STEPS = [
     ("dl", "Download audio"),
     ("flac", "Convert to FLAC"),
     ("tag", "Tag + cover art"),
+    ("lyrics", "Lyrics"),
     ("copy", "Copy to device"),
+]
+
+UPDATE_STEPS = [
+    ("meta", "Spotify link"),
+    ("lyrics", "Lyrics"),
+    ("tag", "Write tags"),
 ]
 
 
 class Job:
-    def __init__(self, idx: int, total: int, sid: str):
+    def __init__(self, idx: int, total: int, sid: str, steps=STEPS):
         self.idx, self.total, self.sid = idx, total, sid
         self.title = f"spotify:track:{sid}"
-        self.steps = {k: ("pending", "") for k, _ in STEPS}
+        self.steps = {k: ("pending", "") for k, _ in steps}
         self.dl = (0, 0, 0.0)
 
     def set(self, key: str, status: str, detail="") -> None:
@@ -606,6 +887,7 @@ class Result:
     folder: str = ""
     note: str = ""
     size: int = 0
+    no_lyrics: bool = False
 
 
 def process_track(job: Job, dev: Device, yt, workdir: Path) -> Result:
@@ -618,15 +900,29 @@ def process_track(job: Job, dev: Device, yt, workdir: Path) -> Result:
     job.set("meta", "done", meta_detail)
 
     def already_there() -> Path | None:
-        if t.album and t.track_no:
-            p = target_path(dev, t)
-            return p if p.exists() else None
+        """Return an existing copy of this song, or None if it must be fetched."""
+        if not t.album:
+            return None
+        dest = target_path(dev, t)
+        if dest.exists():
+            return dest
+        # The folder may already be on the device from an earlier run that had
+        # different track numbering (or none). Match on the title in that case
+        # so the song isn't downloaded twice.
+        folder = dest.parent
+        if folder.is_dir():
+            wanted = safe_name(t.title, "Track").casefold()
+            for f in folder.glob("*.flac"):
+                stem = re.sub(r"^(?:\d+-)?\d{1,3} - ", "", f.stem)
+                if stem.casefold() == wanted:
+                    return f
         return None
 
     def skipped(p: Path) -> Result:
-        for k in ("match", "dl", "flac", "tag", "copy"):
+        for k in ("match", "dl", "flac", "tag", "lyrics", "copy"):
             job.set(k, "skip")
-        return Result("skip", job.title, p.parent.name, "already on device")
+        job.set("copy", "skip", f"already in {folder_label(dev, p)}")
+        return Result("skip", job.title, folder_label(dev, p), "already on device")
 
     if (p := already_there()) is not None:
         return skipped(p)
@@ -654,7 +950,13 @@ def process_track(job: Job, dev: Device, yt, workdir: Path) -> Result:
     audio = download_flac(hit["videoId"], workdir, job)
     job.set("flac", "done", fmt_bytes(audio.stat().st_size))
 
-    # 5. tag + cover -----------------------------------------------------------
+    # 5. lyrics + tag + cover ---------------------------------------------------
+    job.set("lyrics", "active")
+    lyrics = fetch_lyrics(yt, t, round(t.duration_ms / 1000) if t.duration_ms else 0)
+    job.set(
+        "lyrics", "done" if lyrics else "skip",
+        f"{lyrics.source} · {len(lyrics.text)} chars" if lyrics else "none found",
+    )
     job.set("tag", "active")
     cover, cover_note = None, ""
     if t.cover_url:
@@ -668,7 +970,7 @@ def process_track(job: Job, dev: Device, yt, workdir: Path) -> Result:
             cover_note = "   ↳ cover from YT Music"
         except PipelineError:
             cover = None
-    tag_flac(audio, t, cover)
+    tag_flac(audio, t, cover, lyrics)
     job.set(
         "tag", "done",
         Text.assemble(
@@ -697,14 +999,18 @@ def process_track(job: Job, dev: Device, yt, workdir: Path) -> Result:
         keep.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(audio, keep / dest.name)
         raise PipelineError(f"copy failed ({e.strerror}); kept at {keep / dest.name}") from e
-    job.set("copy", "done", f"{dest.parent.name}/{dest.name}")
+    folder = folder_label(dev, dest)
+    job.set("copy", "done", f"{folder}/{dest.name}")
     note = "from YT Music: " + ", ".join(used) if used else ""
-    return Result("ok", job.title, dest.parent.name, note, size)
+    if not lyrics:
+        note = (note + " · " if note else "") + "no lyrics found (LRCLIB, Genius, YT Music)"
+    return Result("ok", job.title, folder, note, size, no_lyrics=not lyrics)
 
 
 class Screen:
-    def __init__(self, dev: Device, total: int):
+    def __init__(self, dev: Device | None, total: int, steps=STEPS):
         self.dev = dev
+        self.step_defs = steps
         self.job: Job | None = None
         self.results: list[Result] = []
         self.progress = Progress(
@@ -717,7 +1023,7 @@ class Screen:
             expand=True,
         )
         self.task = self.progress.add_task("", total=total)
-        self.spinners = {k: Spinner("dots", style=MAUVE) for k, _ in STEPS}
+        self.spinners = {k: Spinner("dots", style=MAUVE) for k, _ in steps}
 
     def dl_bar(self, job: Job) -> Text:
         done, total, speed = job.dl
@@ -738,7 +1044,7 @@ class Screen:
         grid.add_column(width=2)
         grid.add_column(min_width=17)
         grid.add_column(ratio=1, no_wrap=True, overflow="ellipsis")
-        for key, label in STEPS:
+        for key, label in self.step_defs:
             status, detail = job.steps[key]
             if status == "done":
                 icon = Text("✓", style=GREEN)
@@ -784,21 +1090,25 @@ class Screen:
         return table
 
     def __call__(self):
-        parts = [banner(self.dev), self.progress]
+        parts = [banner(self.dev)] if self.dev else []
+        parts.append(self.progress)
         if self.job:
             parts.append(self.job_panel())
         parts.append(self.recent())
         return Group(*parts)
 
 
-def summary(results: list[Result], elapsed: float, interrupted: bool) -> Panel:
+def summary(results: list[Result], elapsed: float, interrupted: bool, verb: str = "copied") -> Panel:
     ok = [r for r in results if r.status == "ok"]
     skipped = [r for r in results if r.status == "skip"]
     failed = [r for r in results if r.status == "fail"]
+    no_lyrics = [r for r in ok if r.no_lyrics]
     line = Text()
-    line.append(f"✓ {len(ok)} copied", style=f"bold {GREEN}")
+    line.append(f"✓ {len(ok)} {verb}", style=f"bold {GREEN}")
     if skipped:
         line.append(f"   ↷ {len(skipped)} already there", style=YELLOW)
+    if no_lyrics:
+        line.append(f"   ! {len(no_lyrics)} without lyrics", style=f"bold {YELLOW}")
     if failed:
         line.append(f"   ✗ {len(failed)} failed", style=f"bold {RED}")
     line.append(f"   · {fmt_bytes(sum(r.size for r in ok))} in {fmt_time(elapsed)}", style=DIM)
@@ -809,7 +1119,14 @@ def summary(results: list[Result], elapsed: float, interrupted: bool) -> Panel:
         body.append(Text(""))
         for r in failed:
             body.append(Text.assemble(("✗ ", RED), (r.label, TEXT), ("\n   " + r.note, DIM)))
-    if ok:
+    if no_lyrics:
+        body.append(Text(""))
+        for r in no_lyrics:
+            body.append(Text.assemble(
+                ("! ", YELLOW), (r.label, TEXT),
+                ("\n   no lyrics found (LRCLIB, Genius, YT Music)", DIM),
+            ))
+    if ok and verb == "copied":
         body.append(Text(""))
         body.append(
             Text(
@@ -817,7 +1134,7 @@ def summary(results: list[Result], elapsed: float, interrupted: bool) -> Panel:
                 style=DIM,
             )
         )
-    colour = RED if failed and not ok else YELLOW if failed or interrupted else GREEN
+    colour = RED if failed and not ok else YELLOW if failed or no_lyrics or interrupted else GREEN
     return Panel(
         Group(*body),
         title=Text(" done ", style=f"bold {BASE} on {colour}"),
@@ -927,12 +1244,260 @@ def run_queue(dev: Device, ids: list[str]) -> None:
         raise SystemExit(1)
 
 
+# --------------------------------------------------------------------------- #
+# --update-metadata: refresh tags + lyrics in files that are already on disk
+# --------------------------------------------------------------------------- #
+
+_source_search_cache: dict[str, str] = {}
+
+
+def source_id(raw: str) -> str:
+    parsed = parse_spotify(raw) if raw else None
+    return parsed[1] if parsed and parsed[0] == "track" else ""
+
+
+def spotify_search_id(title: str, artists: list[str]) -> str:
+    """Last resort for a file with no SOURCE/COMMENT: find its Spotify link."""
+    key = norm(title) + "|" + ",".join(norm(a) for a in artists)
+    if key in _source_search_cache:
+        return _source_search_cache[key]
+    q = f"site:open.spotify.com/track {artists[0] if artists else ''} {title}"
+    link_re = r"open\.spotify\.com/(?:intl-[^/]+/)?track/([A-Za-z0-9]{22})"
+    ids: list[str] = []
+    # Bing's RSS feed is the most reliable; DDG is there if Bing rate-limits.
+    for base, params in (
+        ("https://www.bing.com/search", {"format": "rss", "q": q}),
+        ("https://html.duckduckgo.com/html/", {"q": q}),
+        ("https://lite.duckduckgo.com/lite/", {"q": q}),
+    ):
+        r = get_quiet(base + "?" + urlencode(params), lyric_http)
+        if r:
+            ids = list(dict.fromkeys(re.findall(link_re, html.unescape(r.text))))
+        if ids:
+            break
+    best, score = "", 0.0
+    for sid in ids[:12]:
+        try:
+            cand = spotify_track(sid)
+        except Exception:
+            continue
+        s = similar(title, cand.title)
+        if artist_ok(artists, cand.artists):
+            s += 2
+        if s > score:
+            best, score = sid, s
+    found = best if score >= 4.5 else ""
+    _source_search_cache[key] = found
+    return found
+
+
+def tag_value(f: FLAC, key: str) -> str:
+    return str((f.get(key) or [""])[0])
+
+
+def track_from_tags(f: FLAC, path: Path) -> Track:
+    t = Track("")
+    t.title = tag_value(f, "TITLE") or path.stem
+    t.artists = [a.strip() for a in re.split(r"[,;]", tag_value(f, "ARTIST")) if a.strip()]
+    t.album = tag_value(f, "ALBUM")
+    t.album_artist = tag_value(f, "ALBUMARTIST")
+    t.date = tag_value(f, "DATE")
+    t.track_no = int(num) if (num := tag_value(f, "TRACKNUMBER")).isdigit() else 0
+    total = tag_value(f, "TRACKTOTAL") or tag_value(f, "TOTALTRACKS")
+    t.track_total = int(total) if total.isdigit() else 0
+    t.disc_no = int(num) if (num := tag_value(f, "DISCNUMBER")).isdigit() else 0
+    t.disc_total = int(num) if (num := tag_value(f, "DISCTOTAL")).isdigit() else 0
+    t.duration_ms = round(f.info.length * 1000)
+    return t
+
+
+def update_one(path: Path, yt, job: Job, root: Path | None) -> Result:
+    f = FLAC(path)
+    old = track_from_tags(f, path)
+    job.title = f"{', '.join(old.artists) or '?'} — {old.title}"
+    existing_source = tag_value(f, "SOURCE") or tag_value(f, "COMMENT")
+
+    # 1. Spotify link: SOURCE tag first, then the older COMMENT tag, then search.
+    job.set("meta", "active")
+    sid = source_id(existing_source)
+    via = "SOURCE" if sid else ""
+    if not sid and tag_value(f, "COMMENT"):
+        sid = source_id(tag_value(f, "COMMENT"))
+        via = "COMMENT" if sid else ""
+    if not sid:
+        try:
+            sid = spotify_search_id(old.title, old.artists)
+            via = "Spotify search" if sid else ""
+        except Exception:
+            sid = ""
+    t = old
+    if sid:
+        try:
+            fresh = spotify_track(sid)
+            if similar(old.title, fresh.title) >= 2.0 and artist_ok(old.artists, fresh.artists):
+                t = fresh
+                t.duration_ms = t.duration_ms or old.duration_ms
+                try:  # YT Music only fills what Spotify didn't have
+                    hit = find_match(yt, t)
+                    if hit:
+                        fill_gaps(yt, t, hit)
+                except Exception:
+                    pass
+            else:
+                t = old
+                sid = ""
+        except Exception:
+            t = old
+            sid = ""
+    source_link = f"https://open.spotify.com/track/{sid}" if sid else existing_source
+    job.set(
+        "meta", "done" if source_link else "skip",
+        f"{t.title or old.title}" + (f"  ↳ via {via}" if via else "") if source_link else "no Spotify link",
+    )
+
+    # 2. Lyrics: LRCLIB covers most tracks, Genius next, YT Music last.
+    job.set("lyrics", "active")
+    lyrics = fetch_lyrics(yt, t, round(old.duration_ms / 1000))
+    job.set(
+        "lyrics", "done" if lyrics else "skip",
+        f"{lyrics.source} · {len(lyrics.text)} chars" if lyrics else "none found",
+    )
+
+    # 3. Write tags in place. Never move or rename the file.
+    job.set("tag", "active")
+    if source_link:
+        f["SOURCE"] = source_link
+        f["COMMENT"] = source_link
+    for key, val in (
+        ("TITLE", t.title),
+        ("ARTIST", ", ".join(t.artists)),
+        ("ALBUMARTIST", t.album_artist or (t.artists[0] if t.artists else "")),
+        ("ALBUM", t.album),
+        ("TRACKNUMBER", str(t.track_no) if t.track_no else ""),
+        ("TRACKTOTAL", str(t.track_total) if t.track_total else ""),
+        ("TOTALTRACKS", str(t.track_total) if t.track_total else ""),
+        ("DISCNUMBER", str(t.disc_no) if t.disc_no else ""),
+        ("DISCTOTAL", str(t.disc_total) if t.disc_total else ""),
+        ("DATE", t.date),
+    ):
+        if val:
+            f[key] = val
+    if lyrics:
+        apply_lyrics(f, lyrics)
+    cover = None
+    if t is not old and t.cover_url:
+        try:
+            cover = fetch_cover(t.cover_url)
+        except PipelineError:
+            pass
+    if cover:
+        pic = Picture()
+        pic.type = 3
+        pic.mime = "image/png" if cover.startswith(b"\x89PNG") else "image/jpeg"
+        pic.desc = "Cover"
+        pic.data = cover
+        f.clear_pictures()
+        f.add_picture(pic)
+    f.save()
+
+    notes = []
+    if source_link and not existing_source:
+        notes.append("SOURCE added")
+    elif source_link and source_link != existing_source:
+        notes.append("SOURCE refreshed")
+    if lyrics:
+        notes.append(f"lyrics: {lyrics.source}")
+    else:
+        notes.append("no lyrics found (LRCLIB, Genius, YT Music)")
+    if cover:
+        notes.append("cover refreshed")
+    folder = str(path.parent.relative_to(root)) if root and path.is_relative_to(root) else path.parent.name
+    job.set("tag", "done", f"{len(notes)} changes written")
+    return Result("ok", job.title, folder, ", ".join(notes), no_lyrics=not lyrics)
+
+
+def run_update(paths: list[str]) -> None:
+    from ytmusicapi import YTMusic
+
+    expanded = [Path(p).expanduser() for p in paths]
+    files: list[Path] = []
+    for p in expanded:
+        if p.is_dir():
+            files.extend(sorted(p.rglob("*.flac")))
+        elif p.is_file() and p.suffix.lower() == ".flac":
+            files.append(p)
+        else:
+            console.print(Text(f"  ✗ not a FLAC file or folder: {p}", style=RED))
+    files = list(dict.fromkeys(files))
+    if not files:
+        console.print(Text("  no FLAC files found to update.", style=RED))
+        raise SystemExit(1)
+    roots = [p for p in expanded if p.is_dir()]
+    root = roots[0] if len(roots) == 1 else None
+
+    console.print(
+        Panel(
+            Group(
+                Text(f"{len(files)} FLAC file{'s' if len(files) != 1 else ''} to refresh", style=SUB),
+                Text("metadata: Spotify first (SOURCE → COMMENT → search), YT Music only for gaps", style=DIM),
+                Text("lyrics: LRCLIB → Genius → YT Music", style=DIM),
+                Text("files are updated in place — nothing is moved or renamed", style=DIM),
+            ),
+            title=Text(" update metadata ", style=f"bold {BASE} on {MAUVE}"),
+            title_align="left",
+            border_style=MAUVE,
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
+    yt = YTMusic()
+    screen = Screen(None, len(files), UPDATE_STEPS)
+    started = time.time()
+    interrupted = False
+    with Live(get_renderable=screen, console=console, refresh_per_second=12, transient=True):
+        try:
+            for i, path in enumerate(files, 1):
+                job = Job(i, len(files), "", UPDATE_STEPS)
+                screen.job = job
+                try:
+                    res = update_one(path, yt, job, root)
+                except PipelineError as e:
+                    res = Result("fail", job.title, str(path.parent.name), str(e))
+                except Exception as e:
+                    res = Result("fail", job.title, str(path.parent.name), f"{type(e).__name__}: {e}")
+                if res.status == "fail":
+                    for key, (status, _) in job.steps.items():
+                        if status == "active":
+                            job.set(key, "fail", res.note)
+                screen.results.append(res)
+                screen.progress.advance(screen.task)
+                if not console.is_terminal:
+                    mark = {"ok": "ok  ", "skip": "skip", "fail": "FAIL"}[res.status]
+                    console.print(f"[{i}/{len(files)}] {mark} {res.label} {res.folder} {res.note}", highlight=False)
+        except KeyboardInterrupt:
+            interrupted = True
+    os.sync()
+    console.print(summary(screen.results, time.time() - started, interrupted, verb="updated"))
+    if any(r.status == "fail" for r in screen.results):
+        raise SystemExit(1)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(
         prog="spotify-downloader",
-        description="Spotify links in, tagged FLACs in /run/mount/ayaan_mirza/<device>/Music/<Album>/ out.",
+        description=(
+            "Spotify links in, tagged FLACs in "
+            "/run/media/$USER/<device>/Music/<Artist>/<Album>/ out."
+        ),
     )
-    p.add_argument("urls", nargs="*", help="Spotify links (skips the interactive prompt)")
+    p.add_argument(
+        "urls", nargs="*",
+        help="Spotify links, or FLAC files/folders with --update-metadata",
+    )
+    p.add_argument(
+        "--update-metadata", "--metadata-update", action="store_true", dest="update_metadata",
+        help="refresh tags, the Spotify SOURCE link and lyrics in existing FLAC files/folders",
+    )
     p.add_argument(
         "-d", "--device",
         default=os.environ.get("SPOT2HIBY_DEVICE", "HiBy R1 SD"),
@@ -940,7 +1505,7 @@ def main() -> None:
     )
     p.add_argument(
         "--mount-root",
-        default=os.environ.get("SPOT2HIBY_MOUNT_ROOT") or "/run/mount/ayaan_mirza",
+        default=os.path.expandvars(os.environ.get("SPOT2HIBY_MOUNT_ROOT") or DEFAULT_MOUNT_ROOT),
         help="where removable media is mounted (default: %(default)s)",
     )
     p.add_argument(
@@ -950,6 +1515,12 @@ def main() -> None:
     )
     p.add_argument("--version", action="version", version=f"spotify-downloader {__version__}")
     args = p.parse_args()
+
+    if args.update_metadata:
+        if not args.urls:
+            p.error("--update-metadata needs at least one FLAC file or folder")
+        run_update(args.urls)
+        return
 
     if not shutil.which("ffmpeg"):
         console.print(Text("ffmpeg not found in PATH", style=RED))

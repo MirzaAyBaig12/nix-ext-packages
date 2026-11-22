@@ -9,7 +9,8 @@
 #   };
 #
 # The device is looked up at <mountRoot>/<musicDevice> and FLACs are written to
-# <mountRoot>/<musicDevice>/<musicDir>/<Album>/.
+# <mountRoot>/<musicDevice>/<musicDir>/<Artist>/<Album>/. mountRoot defaults to
+# /run/media/$USER; the binary also expands $USER itself at runtime.
 { isHomeManager }:
 { config, lib, pkgs, ... }:
 let
@@ -37,13 +38,13 @@ in
       description = ''
         Name of the mounted device, exactly as it appears under `mountRoot`.
         The default is how the HiBy R1 SD card shows up on this machine:
-        `/run/mount/ayaan_mirza/HiBy R1 SD`.
+        `/run/media/$USER/HiBy R1 SD`.
       '';
     };
 
     mountRoot = lib.mkOption {
       type = lib.types.str;
-      default = "/run/mount/ayaan_mirza";
+      default = "/run/media/$USER";
       description = ''
         Parent directory that mounted removable media appears in. The script
         looks for `<mountRoot>/<musicDevice>` and waits for it to show up.

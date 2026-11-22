@@ -6,21 +6,25 @@
   nodejs,
   makeWrapper,
   # Name of the music device as it appears once mounted, i.e. the folder
-  # /run/mount/ayaan_mirza/<musicDevice>. The programs.spotify-downloader
+  # /run/media/$USER/<musicDevice>. The programs.spotify-downloader
   # module sets this from its `musicDevice` option. Per run you can also use
   # `spotify-downloader --device NAME` or $SPOT2HIBY_DEVICE.
   musicDevice ? "HiBy R1 SD",
-  # Where removable media gets mounted on this machine.
-  mountRoot ? "/run/mount/ayaan_mirza",
+  # Where removable media gets mounted on this machine. $USER is expanded by
+  # the script itself, so the wrapper keeps the literal value.
+  mountRoot ? "/run/media/$USER",
   # Folder on the device the album folders go into.
   musicDir ? "Music",
 }:
 
-# spot2hiby: paste Spotify links, get tagged FLACs in <device>/Music/<Album>/.
+# spot2hiby: paste Spotify links, get tagged FLACs in <device>/Music/<Artist>/<Album>/.
 # Pure script package, nothing is fetched at build time (so update.sh skips it).
 #   - Spotify metadata + cover: scraped from Spotify's public pages (no API key)
 #   - audio: matched on YouTube Music, downloaded with yt-dlp, converted by ffmpeg
 #   - YT Music also fills fields Spotify doesn't know, and only those
+#   - lyrics: LRCLIB (most coverage), Genius, then YT Music
+#   - --update-metadata refreshes tags/lyrics in existing files; the Spotify
+#     link is kept in the SOURCE tag (and read back from it on later runs)
 let
   pythonEnv = python3.withPackages (ps: [
     ps.mutagen
@@ -32,7 +36,7 @@ let
 in
 stdenvNoCC.mkDerivation {
   pname = "spot2hiby";
-  version = "0.1.0";
+  version = "0.3.0";
 
   src = ./spot2hiby;
 
