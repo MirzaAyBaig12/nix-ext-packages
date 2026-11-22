@@ -1,3 +1,5 @@
 result
 result-*
 ci/dux/flake.lock
+__pycache__/
+*.pyc

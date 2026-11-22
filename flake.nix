@@ -22,6 +22,13 @@
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
       mkNatsumiModule = import ./modules/natsumi.nix { inherit fx-autoconfig natsumi; };
+      mkSpotifyDownloaderModule = import ./modules/spotify-downloader.nix;
+      spotifyDownloader = pkgs.callPackage ./packages/spot2hiby.nix { };
+      # Also exposed on its own as overlays.spotify-downloader.
+      spotifyDownloaderOverlay = final: prev: {
+        spotify-downloader = final.callPackage ./packages/spot2hiby.nix { };
+        spot2hiby = final.callPackage ./packages/spot2hiby.nix { }; # short alias
+      };
     in
     {
       packages.${system} = {
@@ -39,7 +46,14 @@
         browser-ext-sync = pkgs.callPackage ./packages/browser-ext-sync.nix { };
         freelook = pkgs.callPackage ./packages/freelook.nix { };
         prospect-mail = pkgs.callPackage ./packages/prospect-mail.nix { };
+        # `programs.spotify-downloader` (see modules/spotify-downloader.nix)
+        # installs these. Override `musicDevice` / `mountRoot` to retarget.
+        spotify-downloader = spotifyDownloader;
+        spot2hiby = spotifyDownloader; # short alias
       };
+
+      # `pkgs.spotify-downloader` / `pkgs.spot2hiby`, from the module's package.
+      overlays.spotify-downloader = spotifyDownloaderOverlay;
 
       # `pkgs.browser-ext-sync`: declarative Web Store extensions for Helium +
       # ungoogled-chromium (see packages/browser-ext-sync.nix).
@@ -48,7 +62,7 @@
       # overlay ran. The browser-extensions module builds `.wrapped` from it, so a
       # later overlay that replaces `pkgs.ungoogled-chromium` with `.wrapped`
       # doesn't cause infinite recursion. Keep this overlay BEFORE such overrides.
-      overlays.default = final: prev: {
+      overlays.default = final: prev: (spotifyDownloaderOverlay final prev) // {
         browser-ext-sync = final.callPackage ./packages/browser-ext-sync.nix { };
         freelook = final.callPackage ./packages/freelook.nix { };
         prospect-mail = final.callPackage ./packages/prospect-mail.nix { };
@@ -57,6 +71,9 @@
 
       nixosModules.natsumi = mkNatsumiModule { isHomeManager = false; };
       homeManagerModules.natsumi = mkNatsumiModule { isHomeManager = true; };
+
+      nixosModules.spotify-downloader = mkSpotifyDownloaderModule { isHomeManager = false; };
+      homeManagerModules.spotify-downloader = mkSpotifyDownloaderModule { isHomeManager = true; };
 
       # programs.{ungoogled-chromium,helium}.extensions (see modules/browser-extensions.nix)
       homeManagerModules.browser-extensions = ./modules/browser-extensions.nix;
