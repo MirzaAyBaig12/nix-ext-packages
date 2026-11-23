@@ -12,7 +12,7 @@
     };
     # Pinned to a tagged release (the repo doesn't publish release assets).
     natsumi = {
-      url = "github:greeeen-dev/natsumi-browser/v6.12.4";
+      url = "github:greeeen-dev/natsumi-browser/v6.12.5";
       flake = false;
     };
   };
