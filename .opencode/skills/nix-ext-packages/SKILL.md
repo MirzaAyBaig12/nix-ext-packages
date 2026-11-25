@@ -17,11 +17,9 @@ every 4 hours, runs `nix flake check --no-build`, then builds every package.
 - `README.md` — add a row to the Packages table.
 - `scripts/update.sh` — auto-discovers `packages/*.nix`; no workflow edit needed.
 - `template.nix` — AppImage starting point.
-- `packages/openidea.nix`, `packages/euro-office.nix` — FHS-env patterns for
+- `packages/openidea.nix`, `packages/iloader.nix` — FHS-env patterns for
   self-contained `.deb` bundles.
-- `packages/drivedeck.nix` — `autoPatchelfHook` pattern for a simple `.deb`
-  whose binary re-execs itself.
-- `packages/ventoy.nix` — release tarball pattern.
+- `packages/ventoy.nix` — release tarball pattern with `autoPatchelfHook`.
 
 ## Add a package
 
@@ -33,10 +31,10 @@ every 4 hours, runs `nix flake check --no-build`, then builds every package.
    - **Self-contained `.deb` bundle** (ships Qt/CEF/Electron/its own libs):
      unpack untouched with `dpkg-deb -x`, set `dontFixup = true`, run it inside
      `buildFHSEnv`, and add host-side libraries to `targetPkgs`.
-   - **Simple `.deb` ELF** linked against system libs: use `dpkg` +
-     `autoPatchelfHook` + `runtimeDependencies` (see `drivedeck.nix`). This is
-     usually better than FHS when the app re-execs itself or writes autostart
-     files with `current_exe()`.
+   - **Prebuilt ELF** linked against system libs: use `autoPatchelfHook` +
+     `runtimeDependencies` (see `ventoy.nix`; note its caveat about patching
+     self-contained binaries). This is usually better than FHS when the app
+     re-execs itself or writes autostart files with `current_exe()`.
    - **Tarball**: see `ventoy.nix`.
 3. Keep `version`, `url`, and `hash` as plain strings for `update.sh`.
    - `version = "x.y.z";`
@@ -46,9 +44,8 @@ every 4 hours, runs `nix flake check --no-build`, then builds every package.
    - If a package has several versioned assets from the same repo, put each full
      URL on its own `url =` line followed by its `hash`; `update.sh` refreshes
      all of them.
-   - If the release tag and asset version differ (for example tag `v9.3.8`,
-     asset `..._9.3.8-0_amd64.deb`), set `version` to the tag version and keep
-     the asset suffix hardcoded in the URL.
+   - If the release tag and asset version differ, set `version` to the tag
+     version and keep the asset suffix hardcoded in the URL.
    - If upstream has no GitHub releases, extend `update.sh` with a special case.
 4. Compute the hash:
    - `nix store prefetch-file --json <url> | jq -r .hash`
@@ -90,8 +87,8 @@ every 4 hours, runs `nix flake check --no-build`, then builds every package.
 
 ## Conventions
 
-- Package attr names are lowercase, usually hyphenated (`euro-office`,
-  `compas-tools`). `mainProgram` should match the binary in `$out/bin`.
+- Package attr names are lowercase, usually hyphenated (`compas-tools`,
+  `bibata-material-cursor`). `mainProgram` should match the binary in `$out/bin`.
 - Add a short comment block at the top of each package explaining what the
   upstream artifact is, why FHS vs autoPatchelf was chosen, and any
   `update.sh` constraints.

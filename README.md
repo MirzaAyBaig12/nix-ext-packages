@@ -142,8 +142,6 @@ the latest `nixos-unstable` and Lix `main`. So:
 | [`bibata-material-cursor`](packages/bibata-material-cursor.nix) | Bibata Material cursor themes (dark variants), a Material Design 3 take on Bibata. nixpkgs' `bibata-cursors` has no Material variants. | Prebuilt release tarball |
 | [`browser-ext-sync`](packages/browser-ext-sync.nix) | Script that installs Chrome Web Store extensions declaratively for Helium and ungoogled-chromium, which can't install them on their own. Also pins, prunes and installs uBlock Origin (MV2). Used by the `browser-extensions` module. | Shell script (nothing fetched) |
 | [`compas-tools`](packages/compas-tools.nix) | Compás Tools, desktop companion for Compás music players. | AppImage |
-| [`drivedeck`](packages/drivedeck.nix) | DriveDeck for OneDrive, a tray icon and settings window for the OneDrive Client for Linux by abraunegg. The client itself comes from nixpkgs' `onedrive` (put on the app's PATH by the wrapper). | Official `.deb` |
-| [`euro-office`](packages/euro-office.nix) | Euro-Office, an open-source office suite for documents, spreadsheets, presentations and PDFs (a fork of ONLYOFFICE DesktopEditors). | Official `.deb`, run in an FHS env |
 | [`hydra-launcher`](packages/hydra-launcher.nix) | Hydra, an open-source game launcher. | AppImage |
 | [`iloader`](packages/iloader.nix) | iloader, a user-friendly iOS sideloader (Tauri). Needs `services.usbmuxd.enable = true` for device access. | Official `.deb`, run in an FHS env |
 | [`modrinth`](packages/modrinth.nix) | Modrinth App, a Minecraft launcher and mod manager. | AppImage |

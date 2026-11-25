@@ -33,8 +33,6 @@
         openidea = pkgs.callPackage ./packages/openidea.nix { };
         iloader = pkgs.callPackage ./packages/iloader.nix { };
         doubletake = pkgs.callPackage ./packages/doubletake.nix { };
-        drivedeck = pkgs.callPackage ./packages/drivedeck.nix { };
-        euro-office = pkgs.callPackage ./packages/euro-office.nix { };
         bibata-material-cursor = pkgs.callPackage ./packages/bibata-material-cursor.nix { };
         browser-ext-sync = pkgs.callPackage ./packages/browser-ext-sync.nix { };
         freelook = pkgs.callPackage ./packages/freelook.nix { };

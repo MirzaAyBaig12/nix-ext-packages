@@ -10,10 +10,9 @@ keep both documents consistent when changing the packaging workflow.
 - `flake.nix`: expose it as `packages.x86_64-linux.<name>` with `pkgs.callPackage`.
 - `README.md`: add/update its Packages table row.
 - `template.nix`: starting point for AppImages (`appimageTools.extract` + `wrapType2`).
-- `packages/openidea.nix`, `packages/iloader.nix`, `packages/euro-office.nix`: examples
+- `packages/openidea.nix`, `packages/iloader.nix`: examples
   for running an unpacked, self-contained `.deb` in `buildFHSEnv`.
-- `packages/drivedeck.nix`: simpler `.deb`/`autoPatchelfHook` pattern.
-- `packages/ventoy.nix`: release-tarball pattern.
+- `packages/ventoy.nix`: release-tarball pattern with `autoPatchelfHook`.
 
 For bundled Qt/CEF/Electron apps, unpack with `dpkg-deb -x`, set `dontFixup = true`,
 do not strip or autoPatchelf the payload, expose it through `targetPkgs`, and run its
@@ -35,7 +34,7 @@ hash = "sha256-...";
 The URL must match the GitHub release pattern documented in `template.nix`. The updater
 gets the latest release tag, replaces `${version}`, prefetches each versioned asset from
 the same repository, and updates its adjacent hash. If the tag and asset versions differ,
-keep the asset suffix hardcoded (Euro-Office uses tag `v9.3.8` and asset suffix `-0`).
+keep the asset suffix hardcoded in the URL.
 Use `DRY_RUN=1 ./scripts/update.sh` to inspect changes without applying them.
 
 `scripts/update-natsumi.sh` separately bumps the tagged Natsumi input and refreshes only
