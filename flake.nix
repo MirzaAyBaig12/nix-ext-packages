@@ -32,6 +32,7 @@
         ventoy = pkgs.callPackage ./packages/ventoy.nix { };
         openidea = pkgs.callPackage ./packages/openidea.nix { };
         iloader = pkgs.callPackage ./packages/iloader.nix { };
+        ladybird = pkgs.callPackage ./packages/ladybird.nix { };
         doubletake = pkgs.callPackage ./packages/doubletake.nix { };
         bibata-material-cursor = pkgs.callPackage ./packages/bibata-material-cursor.nix { };
         browser-ext-sync = pkgs.callPackage ./packages/browser-ext-sync.nix { };
@@ -49,6 +50,7 @@
       overlays.default = final: prev: {
         browser-ext-sync = final.callPackage ./packages/browser-ext-sync.nix { };
         freelook = final.callPackage ./packages/freelook.nix { };
+        ladybird = final.callPackage ./packages/ladybird.nix { };
         prospect-mail = final.callPackage ./packages/prospect-mail.nix { };
         ungoogled-chromium-base = prev.ungoogled-chromium;
       };

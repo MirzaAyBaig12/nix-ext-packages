@@ -144,6 +144,7 @@ the latest `nixos-unstable` and Lix `main`. So:
 | [`compas-tools`](packages/compas-tools.nix) | Compás Tools, desktop companion for Compás music players. | AppImage |
 | [`hydra-launcher`](packages/hydra-launcher.nix) | Hydra, an open-source game launcher. | AppImage |
 | [`iloader`](packages/iloader.nix) | iloader, a user-friendly iOS sideloader (Tauri). Needs `services.usbmuxd.enable = true` for device access. | Official `.deb`, run in an FHS env |
+| [`ladybird`](packages/ladybird.nix) | Ladybird, an independent web browser with its own engine. | Official Fedora RPM, run in an FHS env |
 | [`modrinth`](packages/modrinth.nix) | Modrinth App, a Minecraft launcher and mod manager. | AppImage |
 | [`openidea`](packages/openidea.nix) | OpenIDEA, an open-source IDE inspired by IntelliJ IDEA, rebuilt in Rust (Tauri). Not affiliated with JetBrains, and JetBrains plugins don't work with it. | Official `.deb`, run in an FHS env |
 | [`sklauncher`](packages/sklauncher.nix) | SKLauncher, a Minecraft launcher. | AppImage |
@@ -164,6 +165,10 @@ and `pkgs.ungoogled-chromium-base`.
 Copy [`template.nix`](template.nix) (AppImage template) to `packages/<name>.nix`, add it to
 `flake.nix`, and run `./scripts/update.sh` to fill in the hash. Keep `version`, `url` and
 `hash` as plain strings on a GitHub release URL so the auto-updater can bump it.
+
+`ladybird` is the other kind of exception: its RPM is hosted in a yum repo at
+`rpm.ladybird.org`, not on GitHub releases. `update.sh` reads that repo's `repodata` and bumps
+`version`, the `-N.fcXX` release in the URL, and the hash automatically.
 
 ## License
 
