@@ -143,6 +143,7 @@ the latest `nixos-unstable` and Lix `main`. So:
 | [`bibata-material-cursor`](packages/bibata-material-cursor.nix) | Bibata Material cursor themes (dark variants), a Material Design 3 take on Bibata. nixpkgs' `bibata-cursors` has no Material variants. | Prebuilt release tarball |
 | [`browser-ext-sync`](packages/browser-ext-sync.nix) | Script that installs Chrome Web Store extensions declaratively for Helium and ungoogled-chromium, which can't install them on their own. Also pins, prunes and installs uBlock Origin (MV2). Used by the `browser-extensions` module. | Shell script (nothing fetched) |
 | [`compas-tools`](packages/compas-tools.nix) | Compás Tools, desktop companion for Compás music players. | AppImage |
+| [`compass`](packages/compass.nix) | Compass, an open-source Arc alternative built on Chromium. Runs in an FHS env; needs unprivileged user namespaces (or `--no-sandbox`). | Official prebuilt `.tar.xz`, run in an FHS env |
 | [`hydra-launcher`](packages/hydra-launcher.nix) | Hydra, an open-source game launcher. | AppImage |
 | [`iloader`](packages/iloader.nix) | iloader, a user-friendly iOS sideloader (Tauri). Needs `services.usbmuxd.enable = true` for device access. | Official `.deb`, run in an FHS env |
 | [`ladybird`](packages/ladybird.nix) | Ladybird, an independent web browser with its own engine. | Official Fedora RPM, run in an FHS env |
