@@ -139,6 +139,7 @@ the latest `nixos-unstable` and Lix `main`. So:
 
 | Package | Description | Packaged from |
 | --- | --- | --- |
+| [`ardia`](packages/ardia.nix) | Ardia, a Chromium-based browser with its own sidebar UI and Helium patches. Runs in an FHS env; needs unprivileged user namespaces (or `--no-sandbox`). | Official `.deb`, run in an FHS env |
 | [`bibata-material-cursor`](packages/bibata-material-cursor.nix) | Bibata Material cursor themes (dark variants), a Material Design 3 take on Bibata. nixpkgs' `bibata-cursors` has no Material variants. | Prebuilt release tarball |
 | [`browser-ext-sync`](packages/browser-ext-sync.nix) | Script that installs Chrome Web Store extensions declaratively for Helium and ungoogled-chromium, which can't install them on their own. Also pins, prunes and installs uBlock Origin (MV2). Used by the `browser-extensions` module. | Shell script (nothing fetched) |
 | [`compas-tools`](packages/compas-tools.nix) | Compás Tools, desktop companion for Compás music players. | AppImage |

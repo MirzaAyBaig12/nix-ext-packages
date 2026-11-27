@@ -25,6 +25,7 @@
     in
     {
       packages.${system} = {
+        ardia = pkgs.callPackage ./packages/ardia.nix { };
         sklauncher = pkgs.callPackage ./packages/sklauncher.nix { };
         compas-tools = pkgs.callPackage ./packages/compas-tools.nix { };
         hydra-launcher = pkgs.callPackage ./packages/hydra-launcher.nix { };
@@ -48,6 +49,7 @@
       # later overlay that replaces `pkgs.ungoogled-chromium` with `.wrapped`
       # doesn't cause infinite recursion. Keep this overlay BEFORE such overrides.
       overlays.default = final: prev: {
+        ardia = final.callPackage ./packages/ardia.nix { };
         browser-ext-sync = final.callPackage ./packages/browser-ext-sync.nix { };
         freelook = final.callPackage ./packages/freelook.nix { };
         ladybird = final.callPackage ./packages/ladybird.nix { };
