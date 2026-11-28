@@ -36,7 +36,6 @@
         doubletake = pkgs.callPackage ./packages/doubletake.nix { };
         bibata-material-cursor = pkgs.callPackage ./packages/bibata-material-cursor.nix { };
         browser-ext-sync = pkgs.callPackage ./packages/browser-ext-sync.nix { };
-        freelook = pkgs.callPackage ./packages/freelook.nix { };
         prospect-mail = pkgs.callPackage ./packages/prospect-mail.nix { };
       };
 
@@ -50,7 +49,6 @@
       overlays.default = final: prev: {
         browser-ext-sync = final.callPackage ./packages/browser-ext-sync.nix { };
         elixiroffice = final.callPackage ./packages/elixiroffice.nix { };
-        freelook = final.callPackage ./packages/freelook.nix { };
         ladybird = final.callPackage ./packages/ladybird.nix { };
         prospect-mail = final.callPackage ./packages/prospect-mail.nix { };
         ungoogled-chromium-base = prev.ungoogled-chromium;
