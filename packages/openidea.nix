@@ -26,11 +26,11 @@
 
 let
   pname = "openidea";
-  version = "0.1.54";
+  version = "0.1.55";
 
   src = fetchurl {
     url = "https://github.com/l0ng-ai/openidea/releases/download/v${version}/OpenIDEA_${version}_amd64.deb";
-    hash = "sha256-X8pUQtrV5YIPj6fuHE17LuMzOgR/WCaSEOg35MOgaz4=";
+    hash = "sha256-i/C0C1meKZbsE7dLZfsczEpUDrvvg7/qUSZVqU11NR4=";
   };
 
   # The deb's payload, untouched.
