@@ -1,9 +1,9 @@
 /*
   Yapfast (a native Discord/Matrix client) from the official Arch Linux
-  .pkg.tar.zst nightly. The archive is just one prebuilt binary plus its desktop
-  entry, icon and license/doc files; upstream's own build is Nix-based, so the
-  binary is patched in place with autoPatchelfHook instead of being wrapped in
-  an FHS env.
+  .pkg.tar.zst nightly. The payload is copied verbatim (no patchelf) and run
+  inside buildFHSEnv, so the binary finds the /lib64, /usr/lib and /usr/share
+  paths it was built against, including the Wayland/X11/GPU libraries it
+  dlopens at runtime.
 
   Upstream publishes nightlies as GitHub *prereleases*. `/releases/latest` only
   returns the older stable release, so scripts/update.sh tracks the newest
@@ -14,15 +14,16 @@
 # updater: prerelease
 {
   lib,
-  stdenv,
+  stdenvNoCC,
   fetchurl,
-  autoPatchelfHook,
-  makeWrapper,
   zstd,
+  buildFHSEnv,
+  writeShellScript,
   glib,
   libpulseaudio,
   wayland,
   libxkbcommon,
+  xkeyboard-config,
   libX11,
   libxcb,
   libxcursor,
@@ -43,10 +44,12 @@
   adwaita-icon-theme,
   shared-mime-info,
   cacert,
-  xkeyboard-config,
+  dejavu_fonts,
+  fontconfig,
 }:
 
 let
+  pname = "yapfast";
   version = "0.5.0-nightly.20261124.21";
   pkgver = "0.5.0nightly.20261124.21";
 
@@ -55,72 +58,90 @@ let
     hash = "sha256-AukjvdQxQxfiWC1t9HifrhCOoNeKFkuED5ipMeYEOgQ=";
   };
 
-  runtimeLibs = [
-    glib
-    libpulseaudio
-    stdenv.cc.cc.lib
-    wayland
-    libxkbcommon
-    libX11
-    libxcb
-    libxcursor
-    libXi
-    alsa-lib
-    # Optional: GPU rendering, screen sharing, X11 screen capture, VA-API.
-    vulkan-loader
-    libglvnd
-    pipewire
-    libdrm
-    libgbm
-    libXcomposite
-    libXdamage
-    libXext
-    libXfixes
-    libXrandr
-    libva
-  ];
+  # The Arch payload, untouched.
+  unwrapped = stdenvNoCC.mkDerivation {
+    pname = "${pname}-unwrapped";
+    inherit version src;
 
-  runtimeData = [
-    hicolor-icon-theme
-    adwaita-icon-theme
-    shared-mime-info
-    cacert
-    xkeyboard-config
-  ];
+    nativeBuildInputs = [ zstd ];
+
+    dontConfigure = true;
+    dontBuild = true;
+    # Keep the binary and its loader paths exactly as shipped.
+    dontFixup = true;
+
+    unpackPhase = ''
+      runHook preUnpack
+      mkdir -p source
+      tar --zstd -xf $src -C source --strip-components=1
+      runHook postUnpack
+    '';
+
+    installPhase = ''
+      runHook preInstall
+      mkdir -p $out
+      cp -r source/. $out/
+      runHook postInstall
+    '';
+  };
 in
-stdenv.mkDerivation {
-  pname = "yapfast";
-  inherit version src;
+buildFHSEnv {
+  inherit pname version;
 
-  nativeBuildInputs = [ autoPatchelfHook makeWrapper zstd ];
+  targetPkgs =
+    pkgs: with pkgs; [
+      # Direct NEEDED libs from the Arch PKGINFO.
+      glib
+      libpulseaudio
+      stdenv.cc.cc.lib
+      # Windowing/input, some loaded lazily by winit and x11-dl.
+      wayland
+      libxkbcommon
+      xkeyboard-config
+      libX11
+      libxcb
+      libxcursor
+      libXi
+      libXext
+      libXfixes
+      alsa-lib
+      # Optional: GPU rendering, screen sharing, capture, VA-API.
+      vulkan-loader
+      libglvnd
+      pipewire
+      libdrm
+      libgbm
+      libXcomposite
+      libXdamage
+      libXrandr
+      libva
+      # Data files, fonts and TLS trust from the Arch dependencies.
+      hicolor-icon-theme
+      adwaita-icon-theme
+      shared-mime-info
+      dejavu_fonts
+      fontconfig
+      cacert
+    ];
 
-  buildInputs = runtimeLibs ++ runtimeData;
-
-  strictDeps = true;
-
-  dontUnpack = true;
-  dontConfigure = true;
-  dontBuild = true;
-  # The upstream binary is already stripped; don't run strip over 130 MB again.
-  dontStrip = true;
-
-  installPhase = ''
-    runHook preInstall
-    mkdir -p $out
-    tar --zstd -xf $src -C $out --strip-components=1
-
-    # winit/x11-dl dlopen Wayland, X11 and GPU libs at runtime; a RUNPATH from
-    # autoPatchelf isn't consulted for those, so the wrapper exports the full
-    # library path (and XKB data) without needing an FHS env.
-    mv $out/bin/yapfast $out/bin/.yapfast-real
-    makeWrapper $out/bin/.yapfast-real $out/bin/yapfast \
-      --set LD_LIBRARY_PATH "${lib.makeLibraryPath runtimeLibs}" \
-      --set XKB_CONFIG_ROOT "${xkeyboard-config}/share/X11/xkb" \
-      --set SSL_CERT_FILE "${cacert}/etc/ssl/certs/ca-bundle.crt" \
-      --prefix XDG_DATA_DIRS : "${lib.makeSearchPath "share" runtimeData}:$out/share"
-
-    runHook postInstall
+  runScript = writeShellScript "yapfast-run" ''
+    export XDG_DATA_DIRS="${unwrapped}/share:/usr/share:''${XDG_DATA_DIRS:-}"
+    export XKB_CONFIG_ROOT=/usr/share/X11/xkb
+    export SSL_CERT_FILE="${cacert}/etc/ssl/certs/ca-bundle.crt"
+    exec ${unwrapped}/bin/yapfast "$@"
   '';
+
+  extraInstallCommands = ''
+    mkdir -p $out/share
+    cp -r ${unwrapped}/share/applications ${unwrapped}/share/icons \
+      ${unwrapped}/share/metainfo $out/share/
+
+    # Absolute Exec: some compositors don't resolve a bare Exec via PATH.
+    substituteInPlace $out/share/applications/io.github.yapfast.Yapfast.desktop \
+      --replace-fail 'Exec=yapfast' "Exec=$out/bin/yapfast"
+  '';
+
+  passthru = { inherit unwrapped; };
 
   meta = {
     description = "Native Discord/Matrix client that stays light on memory";

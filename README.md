@@ -149,7 +149,7 @@ the latest `nixos-unstable` and Lix `main`. So:
 | [`openidea`](packages/openidea.nix) | OpenIDEA, an open-source IDE inspired by IntelliJ IDEA, rebuilt in Rust (Tauri). Not affiliated with JetBrains, and JetBrains plugins don't work with it. | Official `.deb`, run in an FHS env |
 | [`sklauncher`](packages/sklauncher.nix) | SKLauncher, a Minecraft launcher. | AppImage |
 | [`ventoy`](packages/ventoy.nix) | Ventoy, a tool to create bootable USB drives for ISO/WIM/IMG/VHD(x)/EFI files. Provides `ventoy` (CLI), `ventoy-web` (web UI) and `ventoy-gui` (GTK3 GUI). | Upstream release tarball, patched except the GTK3 binary |
-| [`yapfast`](packages/yapfast.nix) | Yapfast, a native Discord/Matrix client that stays light on memory. Tracks upstream nightlies (GitHub prereleases), not the older stable release. | Official Arch `.pkg.tar.zst`, patched with `autoPatchelfHook` |
+| [`yapfast`](packages/yapfast.nix) | Yapfast, a native Discord/Matrix client that stays light on memory. Tracks upstream nightlies (GitHub prereleases), not the older stable release. | Official Arch `.pkg.tar.zst`, run in an FHS env |
 
 ## Modules
 
