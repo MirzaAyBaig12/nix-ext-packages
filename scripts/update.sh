@@ -3,6 +3,12 @@
 # releases, plus ladybird's RPM from the yum repo at rpm.ladybird.org.
 # A package may have several versioned assets (url + hash pairs); all of them are
 # refreshed, as long as they point at the same repository.
+#
+# A `# updater: prerelease` line makes a package track the newest prerelease
+# from /releases; /releases/latest would only ever return the older stable one.
+# A `pkgver = "...";` line (used by Arch-style asset names) is synced with
+# `version` with dashes stripped, e.g. 0.5.0-nightly.X -> 0.5.0nightly.X.
+#
 # DRY_RUN=1 ./scripts/update.sh   -> only report what would change
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -103,8 +109,16 @@ for file in packages/*.nix; do
     continue
   fi
 
-  tag=$(curl -fsSL ${GH_TOKEN:+-H "Authorization: Bearer $GH_TOKEN"} \
-    "https://api.github.com/repos/$owner/$repo/releases/latest" | jq -r .tag_name)
+  if grep -q '^# updater: prerelease' "$file"; then
+    # /releases/latest excludes prereleases (and drafts). Take the newest
+    # prerelease instead; never fall back to a stable tag for these packages.
+    tag=$(curl -fsSL ${GH_TOKEN:+-H "Authorization: Bearer $GH_TOKEN"} \
+      "https://api.github.com/repos/$owner/$repo/releases?per_page=100" |
+      jq -r '[.[] | select(.prerelease == true and .draft == false) | .tag_name][0] // empty')
+  else
+    tag=$(curl -fsSL ${GH_TOKEN:+-H "Authorization: Bearer $GH_TOKEN"} \
+      "https://api.github.com/repos/$owner/$repo/releases/latest" | jq -r .tag_name)
+  fi
   new=${tag#"$prefix"}
 
   if [[ -z $new || $new == "null" || $new == "$cur" ]]; then
@@ -115,18 +129,27 @@ for file in packages/*.nix; do
   echo "[$name] $cur -> $new"
   [[ -n ${DRY_RUN:-} ]] && continue
 
+  # Arch-style asset versions drop the dash from the release tag.
+  old_pkgver=""
+  if grep -q '^\s*pkgver = "' "$file"; then
+    old_pkgver=$(grep -oP '^\s*pkgver = "\K[^"]+' "$file" | head -1)
+    new_pkgver=${new//-/}
+  fi
+
   # Update every versioned asset from this repo and the hash that follows it.
   while IFS= read -r url; do
     [[ $url =~ $re ]] || continue
     [[ ${BASH_REMATCH[1]} == "$owner" && ${BASH_REMATCH[2]} == "$repo" ]] || continue
 
     new_url=${url//'${version}'/$new}
+    [[ -n $old_pkgver ]] && new_url=${new_url//'${pkgver}'/$new_pkgver}
     new_hash=$(nix store prefetch-file --json "$new_url" | jq -r .hash)
     URL=$url NEW_HASH=$new_hash perl -0pi -e \
       's|(\Q$ENV{URL}\E.*?hash = ")[^"]+(")|${1}$ENV{NEW_HASH}${2}|s' "$file"
   done <<<"$urls"
 
   sed -i "s|version = \"$cur\";|version = \"$new\";|" "$file"
+  [[ -n $old_pkgver ]] && sed -i "s|pkgver = \"$old_pkgver\";|pkgver = \"$new_pkgver\";|" "$file"
 
   commit_bump "$file" "$name: $cur -> $new"
 done

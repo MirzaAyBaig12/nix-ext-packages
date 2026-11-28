@@ -149,6 +149,7 @@ the latest `nixos-unstable` and Lix `main`. So:
 | [`openidea`](packages/openidea.nix) | OpenIDEA, an open-source IDE inspired by IntelliJ IDEA, rebuilt in Rust (Tauri). Not affiliated with JetBrains, and JetBrains plugins don't work with it. | Official `.deb`, run in an FHS env |
 | [`sklauncher`](packages/sklauncher.nix) | SKLauncher, a Minecraft launcher. | AppImage |
 | [`ventoy`](packages/ventoy.nix) | Ventoy, a tool to create bootable USB drives for ISO/WIM/IMG/VHD(x)/EFI files. Provides `ventoy` (CLI), `ventoy-web` (web UI) and `ventoy-gui` (GTK3 GUI). | Upstream release tarball, patched except the GTK3 binary |
+| [`yapfast`](packages/yapfast.nix) | Yapfast, a native Discord/Matrix client that stays light on memory. Tracks upstream nightlies (GitHub prereleases), not the older stable release. | Official Arch `.pkg.tar.zst`, patched with `autoPatchelfHook` |
 
 ## Modules
 
@@ -169,6 +170,12 @@ Copy [`template.nix`](template.nix) (AppImage template) to `packages/<name>.nix`
 `ladybird` is the other kind of exception: its RPM is hosted in a yum repo at
 `rpm.ladybird.org`, not on GitHub releases. `update.sh` reads that repo's `repodata` and bumps
 `version`, the `-N.fcXX` release in the URL, and the hash automatically.
+
+For a package whose upstream ships nightlies/betas as GitHub prereleases (like `yapfast`), add a
+`# updater: prerelease` line: `update.sh` will then pick the newest prerelease from `/releases`
+instead of `/releases/latest`, which only ever reports stable releases. If the asset name uses a
+different version spelling, keep it in a `pkgver` string; the updater syncs it with `version` with
+dashes removed (`0.5.0-nightly.X` -> `0.5.0nightly.X`).
 
 ## License
 

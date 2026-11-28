@@ -37,6 +37,7 @@
         bibata-material-cursor = pkgs.callPackage ./packages/bibata-material-cursor.nix { };
         browser-ext-sync = pkgs.callPackage ./packages/browser-ext-sync.nix { };
         prospect-mail = pkgs.callPackage ./packages/prospect-mail.nix { };
+        yapfast = pkgs.callPackage ./packages/yapfast.nix { };
       };
 
       # `pkgs.browser-ext-sync`: declarative Web Store extensions for Helium +
