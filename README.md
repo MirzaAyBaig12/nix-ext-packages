@@ -146,6 +146,7 @@ the latest `nixos-unstable` and Lix `main`. So:
 | [`iloader`](packages/iloader.nix) | iloader, a user-friendly iOS sideloader (Tauri). Needs `services.usbmuxd.enable = true` for device access. | Official `.deb`, run in an FHS env |
 | [`ladybird`](packages/ladybird.nix) | Ladybird, an independent web browser with its own engine. | Official Fedora RPM, run in an FHS env |
 | [`modrinth`](packages/modrinth.nix) | Modrinth App, a Minecraft launcher and mod manager. | AppImage |
+| [`mocktail`](packages/mocktail.nix) | Mocktail, an Android Roblox compatibility runtime for Linux. | Official `.deb`, patched with `autoPatchelfHook` |
 | [`openidea`](packages/openidea.nix) | OpenIDEA, an open-source IDE inspired by IntelliJ IDEA, rebuilt in Rust (Tauri). Not affiliated with JetBrains, and JetBrains plugins don't work with it. | Official `.deb`, run in an FHS env |
 | [`sklauncher`](packages/sklauncher.nix) | SKLauncher, a Minecraft launcher. | AppImage |
 | [`ventoy`](packages/ventoy.nix) | Ventoy, a tool to create bootable USB drives for ISO/WIM/IMG/VHD(x)/EFI files. Provides `ventoy` (CLI), `ventoy-web` (web UI) and `ventoy-gui` (GTK3 GUI). | Upstream release tarball, patched except the GTK3 binary |
