@@ -31,6 +31,7 @@
         compass = pkgs.callPackage ./packages/compass.nix { };
         hydra-launcher = pkgs.callPackage ./packages/hydra-launcher.nix { };
         modrinth = pkgs.callPackage ./packages/modrinth.nix { };
+        elixiroffice = pkgs.callPackage ./packages/elixiroffice.nix { };
         ventoy = pkgs.callPackage ./packages/ventoy.nix { };
         openidea = pkgs.callPackage ./packages/openidea.nix { };
         iloader = pkgs.callPackage ./packages/iloader.nix { };
@@ -53,6 +54,7 @@
         ardia = final.callPackage ./packages/ardia.nix { };
         browser-ext-sync = final.callPackage ./packages/browser-ext-sync.nix { };
         compass = final.callPackage ./packages/compass.nix { };
+        elixiroffice = final.callPackage ./packages/elixiroffice.nix { };
         freelook = final.callPackage ./packages/freelook.nix { };
         ladybird = final.callPackage ./packages/ladybird.nix { };
         prospect-mail = final.callPackage ./packages/prospect-mail.nix { };
