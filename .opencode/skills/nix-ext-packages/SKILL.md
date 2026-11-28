@@ -27,7 +27,7 @@ every 4 hours, runs `nix flake check --no-build`, then builds every package.
    Prefer an official `.deb`, AppImage, or tarball.
 2. Pick the packaging pattern:
    - **AppImage**: follow `template.nix` / an existing AppImage package
-     (`compas-tools.nix`, `modrinth.nix`, `sklauncher.nix`, `hydra-launcher.nix`).
+     (`elixiroffice.nix`, `modrinth.nix`, `sklauncher.nix`, `hydra-launcher.nix`).
    - **Self-contained `.deb` bundle** (ships Qt/CEF/Electron/its own libs):
      unpack untouched with `dpkg-deb -x`, set `dontFixup = true`, run it inside
      `buildFHSEnv`, and add host-side libraries to `targetPkgs`.
@@ -87,8 +87,8 @@ every 4 hours, runs `nix flake check --no-build`, then builds every package.
 
 ## Conventions
 
-- Package attr names are lowercase, usually hyphenated (`compas-tools`,
-  `bibata-material-cursor`). `mainProgram` should match the binary in `$out/bin`.
+- Package attr names are lowercase, usually hyphenated (`bibata-material-cursor`,
+  `elixiroffice`). `mainProgram` should match the binary in `$out/bin`.
 - Add a short comment block at the top of each package explaining what the
   upstream artifact is, why FHS vs autoPatchelf was chosen, and any
   `update.sh` constraints.

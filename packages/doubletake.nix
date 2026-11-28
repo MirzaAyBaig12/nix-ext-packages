@@ -1,30 +1,36 @@
 {
   lib,
-  stdenvNoCC,
+  stdenv,
   fetchurl,
+  autoPatchelfHook,
+  glib,
+  gst_all_1,
 }:
 
 # AirPlay sender for Linux (X11 & Wayland), github.com/omarroth/doubletake.
-# Upstream ships fully static x86_64 binaries, so they are installed as-is.
+# Upstream ships a tarball with a dynamically linked x86_64 binary (GStreamer
+# is used for video); `doubletake ctl` is part of the main binary since 0.7.0.
 let
-  version = "0.6.0";
+  version = "0.7.0";
 
-  doubletake = fetchurl {
-    url = "https://github.com/omarroth/doubletake/releases/download/v${version}/doubletake";
-    hash = "sha256-Aftse53m871pOmKeJI/mHOt68GNTyPPyHMKYeNH59d4=";
-  };
-  doubletake-ctl = fetchurl {
-    url = "https://github.com/omarroth/doubletake/releases/download/v${version}/doubletake-ctl";
-    hash = "sha256-5UGMFzBnfT+PZIDAxftLS2ioWkCLNtnSnDDE8BBgirQ=";
-  };
-  manpages = fetchurl {
-    url = "https://github.com/omarroth/doubletake/releases/download/v${version}/doubletake-manpages.tar.gz";
-    hash = "sha256-n734uR3qS1ELVHYC9QTHiljeLOD40fs8wAbepfDBGdw=";
+  src = fetchurl {
+    url = "https://github.com/omarroth/doubletake/releases/download/v${version}/doubletake-v${version}-linux-x86_64.tar.gz";
+    hash = "sha256-xjfRaChFWiEUaRFN4668DDLQdAA492U0j4EjEC1NSbw=";
   };
 in
-stdenvNoCC.mkDerivation {
+stdenv.mkDerivation {
   pname = "doubletake";
   inherit version;
+
+  inherit src;
+
+  nativeBuildInputs = [ autoPatchelfHook ];
+
+  buildInputs = [
+    glib
+    gst_all_1.gstreamer
+    gst_all_1.gst-plugins-base
+  ];
 
   dontUnpack = true;
   dontConfigure = true;
@@ -34,11 +40,8 @@ stdenvNoCC.mkDerivation {
   installPhase = ''
     runHook preInstall
 
-    install -Dm755 ${doubletake} $out/bin/doubletake
-    install -Dm755 ${doubletake-ctl} $out/bin/doubletake-ctl
-
-    mkdir -p $out/share/man
-    tar -xzf ${manpages} -C $out/share/man
+    mkdir -p $out
+    tar -xzf $src -C $out --strip-components=1
 
     runHook postInstall
   '';
