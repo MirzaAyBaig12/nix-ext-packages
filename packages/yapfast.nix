@@ -50,12 +50,12 @@
 
 let
   pname = "yapfast";
-  version = "0.5.0-nightly.20261124.21";
-  pkgver = "0.5.0nightly.20261124.21";
+  version = "0.5.0-nightly.20261128.22";
+  pkgver = "0.5.0nightly.20261128.22";
 
   src = fetchurl {
     url = "https://github.com/yapfast/yapfast/releases/download/v${version}/yapfast-${pkgver}-1-x86_64.pkg.tar.zst";
-    hash = "sha256-AukjvdQxQxfiWC1t9HifrhCOoNeKFkuED5ipMeYEOgQ=";
+    hash = "sha256-1scg8S9EPiGiLoCNoI99KGCSstDEC4qo+Q59FndwwMM=";
   };
 
   # The Arch payload, untouched.
